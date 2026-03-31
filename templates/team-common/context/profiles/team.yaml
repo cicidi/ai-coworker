@@ -1,0 +1,14 @@
+team:
+  name: "ai-coworker"
+  size: 1
+
+members:
+  - username: cicidi
+    name: cicidi
+    role: [backend, frontend, architect]
+    services: []
+    slack_id: ""
+    telegram_id: ""
+    discord_id: ""
+    email: ""
+    github: cicidi

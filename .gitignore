@@ -1,0 +1,11 @@
+/personal/
+.local_config.yaml
+.env
+*.local
+.DS_Store
+__pycache__/
+node_modules/
+.venv/
+*.pyc
+build/
+src/*.egg-info/

@@ -1,0 +1,18 @@
+identity:
+  username: cicidi
+  project: ""  # fill in current project name
+
+docs:
+  prd: docs/prd/PRD.md
+  design:
+    - docs/design/DESIGN.md
+  feature: docs/design/FEATURE.md
+  planning: docs/planning/PLANNING.md
+
+deps:
+  # List local paths to dependent services
+  # example-service: ~/project/example-service
+
+github:
+  repo: ""  # e.g., cicidi/my-repo
+  default_branch: main

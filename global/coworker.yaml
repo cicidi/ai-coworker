@@ -1,0 +1,47 @@
+version: "1"
+scope: global
+
+# MCP Servers — shared across Claude Code, Gemini, OpenCode
+mcp: []
+  # Example:
+  # - name: filesystem
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/cicidi"]
+  #   enabled: true
+  #
+  # - name: github
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     GITHUB_PERSONAL_ACCESS_TOKEN: "your-token"
+  #   enabled: true
+
+# Skills
+skills:
+  - name: commit
+    path: skills/commit
+    description: Smart git commit with conventional commits format
+    enabled: true
+
+# Permissions (Claude Code)
+permissions:
+  allow:
+    - Bash(git *)
+    - Bash(npm *)
+    - Bash(python *)
+    - Read(*)
+    - Write(*)
+  deny: []
+
+# Claude Code specific
+claude:
+  effortLevel: medium
+  skipDangerousModePermissionPrompt: false
+
+# Gemini CLI specific
+gemini:
+  extra: {}
+
+# OpenCode specific
+opencode:
+  extra: {}
