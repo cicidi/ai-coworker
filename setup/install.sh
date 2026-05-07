@@ -173,20 +173,10 @@ install_skill() {
 # Step 5 — Install skills
 # =============================================================================
 echo ""
-log "Installing team-common skills..."
+log "Installing skills..."
 
-TEAM_SKILLS_DIR="$REPO_ROOT/templates/team-common/skills"
-for skill in "$TEAM_SKILLS_DIR"/*.md; do
-  [[ -f "$skill" ]] || continue
-  [[ -n "$CLAUDE_CODE_DIR" ]] && install_skill "$skill" "$CLAUDE_CODE_DIR"
-  [[ -n "$CURSOR_DIR" ]]      && install_skill "$skill" "$CURSOR_DIR"
-  [[ -n "$OPENCODE_DIR" ]]    && install_skill "$skill" "$OPENCODE_DIR"
-  [[ -n "$GEMINI_DIR" ]]      && install_skill "$skill" "$GEMINI_DIR"
-done
-
-log "Installing personal skills..."
-PERSONAL_SKILLS_DIR="$REPO_ROOT/templates/personal/skills"
-for skill in "$PERSONAL_SKILLS_DIR"/*.md; do
+SKILLS_DIR="$REPO_ROOT/skills"
+for skill in "$SKILLS_DIR"/*.md; do
   [[ -f "$skill" ]] || continue
   [[ -n "$CLAUDE_CODE_DIR" ]] && install_skill "$skill" "$CLAUDE_CODE_DIR"
   [[ -n "$CURSOR_DIR" ]]      && install_skill "$skill" "$CURSOR_DIR"
