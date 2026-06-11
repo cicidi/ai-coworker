@@ -3,20 +3,23 @@ set -euo pipefail
 
 # =============================================================================
 # ai-coworker install.sh
-# Installs skills to all detected IDEs (Claude Code, Cursor, OpenCode, Gemini)
+# Installs coworker skills from skill-factory to Claude Code (primary) and
+# OpenCode (symlink/copy).
+#
 # Usage:
 #   ./setup/install.sh              # interactive mode
-#   ./setup/install.sh --global     # install to ~/.claude/commands/ etc.
+#   ./setup/install.sh --global     # install to ~/.claude/commands/ (default)
 #   ./setup/install.sh --project /path/to/project
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SKILL_FACTORY_URL="https://github.com/cicidi/skill-factory"
+SKILL_FACTORY_DIR="$HOME/.config/opencode/skills/skill-factory"
+GLOBAL_CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+
 INSTALL_MODE=""
 PROJECT_PATH=""
-CREATED=0
-UPDATED=0
-SKIPPED=0
 
 # Colors
 GREEN='\033[0;32m'
@@ -45,7 +48,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # =============================================================================
-# Step 1 — Identity detection
+# Step 1 — Banner
 # =============================================================================
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -53,23 +56,55 @@ echo "  AI Coworker — Setup"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-USERNAME=$(whoami)
-CURRENT_PROJECT=$(basename "$(pwd)")
-log "Detected identity: ${USERNAME} working on ${CURRENT_PROJECT}"
-read -rp "  Is this correct? (y/n) [y]: " CONFIRM
-CONFIRM="${CONFIRM:-y}"
-if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-  read -rp "  Enter your username: " USERNAME
-  read -rp "  Enter your project name: " CURRENT_PROJECT
+# =============================================================================
+# Step 2 — Ensure global CLAUDE.md exists
+# =============================================================================
+log "Checking global CLAUDE.md..."
+
+CLAUDE_MD_CONTENT='# Global instructions for all projects
+
+## Question Requirement
+
+For every request the user makes, ask 1-3 clarifying questions before acting. This ensures alignment and avoids wasted work. Questions should focus on scope, constraints, priorities, and success criteria.
+
+Skip questions if confident ≥90% that the request is unambiguous.'
+
+if [[ -f "$GLOBAL_CLAUDE_MD" ]]; then
+  ok "Global CLAUDE.md already exists at $GLOBAL_CLAUDE_MD"
+else
+  log "Creating global CLAUDE.md at $GLOBAL_CLAUDE_MD..."
+  mkdir -p "$(dirname "$GLOBAL_CLAUDE_MD")"
+  echo "$CLAUDE_MD_CONTENT" > "$GLOBAL_CLAUDE_MD"
+  ok "Created $GLOBAL_CLAUDE_MD"
 fi
 
 # =============================================================================
-# Step 2 — Install mode
+# Step 3 — Clone/update skill-factory
+# =============================================================================
+log "Setting up skill-factory..."
+
+if [[ -d "$SKILL_FACTORY_DIR" ]]; then
+  log "Updating skill-factory from GitHub..."
+  git -C "$SKILL_FACTORY_DIR" pull --ff-only origin main 2>/dev/null || \
+    warn "Could not update skill-factory (dirty or offline). Continuing with current version."
+else
+  log "Cloning skill-factory from $SKILL_FACTORY_URL..."
+  mkdir -p "$(dirname "$SKILL_FACTORY_DIR")"
+  git clone "$SKILL_FACTORY_URL" "$SKILL_FACTORY_DIR" 2>/dev/null || {
+    error "Failed to clone skill-factory. Check your internet connection and git config."
+    exit 1
+  }
+fi
+
+ok "Skill-factory ready at $SKILL_FACTORY_DIR"
+
+# =============================================================================
+# Step 4 — Install mode
 # =============================================================================
 if [[ -z "$INSTALL_MODE" ]]; then
   echo ""
   echo "Install location:"
-  echo "  1) Global (~/.claude/commands/ etc.) — available in all projects"
+  echo "  1) Global (~/.claude/commands/) — available in all projects [default]"
   echo "  2) Project (current directory) — only this project"
   read -rp "  Choose [1]: " CHOICE
   CHOICE="${CHOICE:-1}"
@@ -85,151 +120,220 @@ if [[ "$INSTALL_MODE" == "project" && -z "$PROJECT_PATH" ]]; then
 fi
 
 # =============================================================================
-# Step 3 — Role selection
+# Step 5 — Determine install destinations
 # =============================================================================
-echo ""
-echo "Select your role(s) (space-separated, e.g. '1 3'):"
-echo "  1) Backend"
-echo "  2) Frontend"
-echo "  3) Architect"
-echo "  4) PM / Product"
-echo "  5) All"
-read -rp "  Roles [5]: " ROLE_INPUT
-ROLE_INPUT="${ROLE_INPUT:-5}"
-ROLES=()
-for r in $ROLE_INPUT; do
-  case "$r" in
-    1) ROLES+=("backend") ;;
-    2) ROLES+=("frontend") ;;
-    3) ROLES+=("architect") ;;
-    4) ROLES+=("pm") ;;
-    5) ROLES+=("backend" "frontend" "architect" "pm") ;;
-  esac
-done
-
-# =============================================================================
-# Step 4 — Detect IDEs
-# =============================================================================
-echo ""
-log "Detecting IDEs..."
-
-CLAUDE_CODE_DIR=""
-CURSOR_DIR=""
-OPENCODE_DIR=""
-GEMINI_DIR=""
-
 if [[ "$INSTALL_MODE" == "global" ]]; then
-  [[ -d "$HOME/.claude" ]] && CLAUDE_CODE_DIR="$HOME/.claude/commands"
-  [[ -d "$HOME/.cursor" ]] && CURSOR_DIR="$HOME/.cursor/rules"
-  [[ -d "$HOME/.opencode" ]] && OPENCODE_DIR="$HOME/.opencode/instructions"
-  [[ -d "$HOME/.gemini" ]] && GEMINI_DIR="$HOME/.gemini"
+  CLAUDE_DIR="$HOME/.claude/commands"
+  OPENCODE_DIR="$HOME/.opencode/instructions"
 else
-  TARGET="$PROJECT_PATH"
-  CLAUDE_CODE_DIR="$TARGET/.claude/commands"
-  CURSOR_DIR="$TARGET/.cursor/rules"
-  OPENCODE_DIR="$TARGET/.opencode/instructions"
-  GEMINI_DIR="$TARGET/.gemini"
+  CLAUDE_DIR="$PROJECT_PATH/.claude/commands"
+  OPENCODE_DIR="$PROJECT_PATH/.opencode/instructions"
 fi
 
-# Check which are actually installed
-FOUND_IDES=()
-command -v claude &>/dev/null && FOUND_IDES+=("claude-code") || true
-command -v cursor &>/dev/null && FOUND_IDES+=("cursor") || true
-command -v opencode &>/dev/null && FOUND_IDES+=("opencode") || true
-command -v gemini &>/dev/null && FOUND_IDES+=("gemini-cli") || true
+# Ensure Claude directory exists (Claude Code is primary)
+mkdir -p "$CLAUDE_DIR"
+ok "Claude Code skills dir: $CLAUDE_DIR"
 
-if [[ ${#FOUND_IDES[@]} -eq 0 ]]; then
-  warn "No IDEs auto-detected. Installing to all locations anyway."
+# =============================================================================
+# Step 6 — List available skills from skill-factory
+# =============================================================================
+log "Loading available skills from skill-factory..."
+
+declare -a AVAILABLE_SKILLS=()
+declare -a SKILL_PATHS=()
+declare -a SKILL_LABELS=()
+
+index_skills() {
+  local dir="$1"
+  local prefix="$2"
+  for skill_dir in "$dir"/*/; do
+    [[ -d "$skill_dir" ]] || continue
+    local skill_file="${skill_dir}SKILL.md"
+    [[ -f "$skill_file" ]] || continue
+    local name
+    name=$(grep -m1 '^name:' "$skill_file" 2>/dev/null | sed 's/name: *//' | xargs)
+    [[ -n "$name" ]] || continue
+    AVAILABLE_SKILLS+=("$name")
+    SKILL_PATHS+=("$skill_file")
+    SKILL_LABELS+=("${prefix}$(basename "$skill_dir")")
+  done
+}
+
+index_skills "$SKILL_FACTORY_DIR/ai-coworker-skills" "[factory] "
+index_skills "$SKILL_FACTORY_DIR/personal-skills" "[personal] "
+index_skills "$SKILL_FACTORY_DIR/import-skills" "[import] "
+
+if [[ ${#AVAILABLE_SKILLS[@]} -eq 0 ]]; then
+  warn "No skills found in skill-factory."
+else
+  ok "Found ${#AVAILABLE_SKILLS[@]} skills in skill-factory."
 fi
 
-ok "IDE locations:"
-echo "   Claude Code : ${CLAUDE_CODE_DIR}"
-echo "   Cursor      : ${CURSOR_DIR}"
-echo "   OpenCode    : ${OPENCODE_DIR}"
-echo "   Gemini CLI  : ${GEMINI_DIR}"
+# =============================================================================
+# Step 7 — Skill selection
+# =============================================================================
+echo ""
+echo "Skill selection:"
+echo "  0) None — skip skill installation [default]"
+echo "  1) All — install all available skills"
+echo "  2) Select — pick individual skills"
+read -rp "  Choose [0]: " SKILL_CHOICE
+SKILL_CHOICE="${SKILL_CHOICE:-0}"
+
+SELECTED_SKILLS=()
+
+case "$SKILL_CHOICE" in
+  0)
+    log "Skipping skill installation."
+    ;;
+  1)
+    SELECTED_SKILLS=("${AVAILABLE_SKILLS[@]}")
+    log "Installing all ${#SELECTED_SKILLS[@]} skills."
+    ;;
+  2)
+    echo ""
+    echo "Available skills (enter numbers, space-separated):"
+    for i in "${!SKILL_LABELS[@]}"; do
+      printf "  %2d) %s  (%s)\n" "$((i+1))" "${SKILL_LABELS[$i]}" "${AVAILABLE_SKILLS[$i]}"
+    done
+    read -rp "  Select: " SELECTED_NUMS
+    for num in $SELECTED_NUMS; do
+      idx=$((num-1))
+      if [[ $idx -ge 0 && $idx -lt ${#AVAILABLE_SKILLS[@]} ]]; then
+        SELECTED_SKILLS+=("${AVAILABLE_SKILLS[$idx]}")
+      fi
+    done
+    log "Selected ${#SELECTED_SKILLS[@]} skills."
+    ;;
+  *)
+    error "Invalid choice"; exit 1 ;;
+esac
 
 # =============================================================================
-# Helper: install a skill file to a target directory
+# Step 8 — Always install coworker-meta-setup-coworker
 # =============================================================================
+SETUP_SKILL_SRC="$REPO_ROOT/skills/coworker-meta-setup-coworker.md"
+if [[ -f "$SETUP_SKILL_SRC" ]]; then
+  cp "$SETUP_SKILL_SRC" "$CLAUDE_DIR/coworker-meta-setup-coworker.md"
+  ok "Installed coworker-meta-setup-coworker (core, always installed)"
+else
+  warn "coworker-meta-setup-coworker.md not found at $SETUP_SKILL_SRC"
+fi
+
+# =============================================================================
+# Step 9 — Install selected skills to Claude Code (primary)
+# =============================================================================
+CREATED=0
+UPDATED=0
+SKIPPED=0
+
 install_skill() {
   local src="$1"
   local target_dir="$2"
-  local filename
-  filename="$(basename "$src")"
+  local folder_name=""
+  folder_name="$(basename "$(dirname "$src")")"
+  local filename="${folder_name}.md"
+
+  if [[ ! -f "$src" ]]; then
+    warn "Source not found: $src"
+    return
+  fi
 
   mkdir -p "$target_dir"
   if [[ ! -f "$target_dir/$filename" ]]; then
     cp "$src" "$target_dir/$filename"
     ((CREATED++)) || true
+    ok "  Created: $filename"
   elif ! diff -q "$src" "$target_dir/$filename" &>/dev/null; then
     cp "$src" "$target_dir/$filename"
     ((UPDATED++)) || true
+    ok "  Updated: $filename"
   else
     ((SKIPPED++)) || true
   fi
 }
 
-# =============================================================================
-# Step 5 — Install skills
-# =============================================================================
-echo ""
-log "Installing skills..."
-
-SKILLS_DIR="$REPO_ROOT/skills"
-for skill in "$SKILLS_DIR"/*.md; do
-  [[ -f "$skill" ]] || continue
-  [[ -n "$CLAUDE_CODE_DIR" ]] && install_skill "$skill" "$CLAUDE_CODE_DIR"
-  [[ -n "$CURSOR_DIR" ]]      && install_skill "$skill" "$CURSOR_DIR"
-  [[ -n "$OPENCODE_DIR" ]]    && install_skill "$skill" "$OPENCODE_DIR"
-  [[ -n "$GEMINI_DIR" ]]      && install_skill "$skill" "$GEMINI_DIR"
-done
-
-# =============================================================================
-# Step 6 — Copy personal templates (gitignored)
-# =============================================================================
-log "Setting up personal folder..."
-PERSONAL_DIR="$REPO_ROOT/personal"
-mkdir -p "$PERSONAL_DIR/context" "$PERSONAL_DIR/skills"
-
-if [[ ! -f "$PERSONAL_DIR/context/config.yaml" ]]; then
-  cp "$REPO_ROOT/templates/personal/context/config-template.yaml" \
-     "$PERSONAL_DIR/context/config.yaml"
-  # Fill in identity
-  sed -i "s/username: cicidi/username: $USERNAME/" "$PERSONAL_DIR/context/config.yaml"
-  sed -i "s/project: \"\"/project: $CURRENT_PROJECT/" "$PERSONAL_DIR/context/config.yaml"
-  ok "Created personal/context/config.yaml"
+if [[ ${#SELECTED_SKILLS[@]} -gt 0 ]]; then
+  echo ""
+  log "Installing skills to Claude Code..."
+  for i in "${!SELECTED_SKILLS[@]}"; do
+    install_skill "${SKILL_PATHS[$i]}" "$CLAUDE_DIR"
+  done
 fi
 
 # =============================================================================
-# Step 7 — Create .local_config.yaml (project mode)
+# Step 10 — OpenCode: symlink or copy
+# =============================================================================
+if [[ -n "$OPENCODE_DIR" ]]; then
+  echo ""
+  log "Syncing skills to OpenCode..."
+
+  mkdir -p "$OPENCODE_DIR"
+
+  # Symlink setup-coworker if possible
+  if [[ -f "$CLAUDE_DIR/coworker-meta-setup-coworker.md" ]]; then
+    if [[ -L "$OPENCODE_DIR/coworker-meta-setup-coworker.md" ]]; then
+      ok "  OpenCode symlink already exists: coworker-meta-setup-coworker.md"
+    else
+      ln -sf "$CLAUDE_DIR/coworker-meta-setup-coworker.md" "$OPENCODE_DIR/coworker-meta-setup-coworker.md" 2>/dev/null || \
+        cp "$CLAUDE_DIR/coworker-meta-setup-coworker.md" "$OPENCODE_DIR/coworker-meta-setup-coworker.md"
+      ok "  Synced to OpenCode: coworker-meta-setup-coworker.md"
+    fi
+  fi
+
+  # Sync selected skills
+  for skill_file in "$CLAUDE_DIR"/*.md; do
+    [[ -f "$skill_file" ]] || continue
+    name="${skill_file##*/}"
+    [[ "$name" == "coworker-meta-setup-coworker.md" ]] && continue
+    if [[ ! -f "$OPENCODE_DIR/$name" ]]; then
+      ln -sf "$skill_file" "$OPENCODE_DIR/$name" 2>/dev/null || cp "$skill_file" "$OPENCODE_DIR/$name"
+    elif ! diff -q "$skill_file" "$OPENCODE_DIR/$name" &>/dev/null; then
+      cp "$skill_file" "$OPENCODE_DIR/$name"
+    fi
+  done
+  ok "OpenCode sync complete."
+fi
+
+# =============================================================================
+# Step 11 — Symlink CLAUDE.md for OpenCode
 # =============================================================================
 if [[ "$INSTALL_MODE" == "project" ]]; then
-  LOCAL_CONFIG="$PROJECT_PATH/.local_config.yaml"
-  if [[ ! -f "$LOCAL_CONFIG" ]]; then
-    cp "$REPO_ROOT/templates/personal/context/config-template.yaml" "$LOCAL_CONFIG"
-    sed -i "s/username: cicidi/username: $USERNAME/" "$LOCAL_CONFIG"
-    sed -i "s/project: \"\"/project: $CURRENT_PROJECT/" "$LOCAL_CONFIG"
-    ok "Created .local_config.yaml"
+  CLAUDE_MD="$REPO_ROOT/CLAUDE.md"
+  OPENCODE_AGENTS="$PROJECT_PATH/AGENTS.md"
+  if [[ -f "$CLAUDE_MD" ]]; then
+    ln -sf "$CLAUDE_MD" "$OPENCODE_AGENTS" 2>/dev/null || true
   fi
 fi
 
 # =============================================================================
-# Step 8 — Symlink CLAUDE.md for Cursor / OpenCode / Gemini
+# Step 12 — Update .gitignore (project mode)
 # =============================================================================
 if [[ "$INSTALL_MODE" == "project" ]]; then
-  CLAUDE_MD="$REPO_ROOT/CLAUDE.md"
-  [[ -n "$CURSOR_DIR" ]] && ln -sf "$CLAUDE_MD" "$PROJECT_PATH/.cursorrules" 2>/dev/null || true
-  [[ -n "$OPENCODE_DIR" ]] && ln -sf "$CLAUDE_MD" "$PROJECT_PATH/AGENTS.md" 2>/dev/null || true
-  [[ -n "$GEMINI_DIR" ]] && ln -sf "$CLAUDE_MD" "$PROJECT_PATH/GEMINI.md" 2>/dev/null || true
+  GITIGNORE="$PROJECT_PATH/.gitignore"
+  [[ -f "$GITIGNORE" ]] || touch "$GITIGNORE"
+  for entry in "personal/" ".local_config.yaml" ".env" ".cursorrules" "AGENTS.md" "GEMINI.md"; do
+    grep -qxF "$entry" "$GITIGNORE" 2>/dev/null || echo "$entry" >> "$GITIGNORE"
+  done
 fi
 
 # =============================================================================
-# Step 9 — Update .gitignore
+# Step 13 — MCP config sync
 # =============================================================================
-GITIGNORE="$REPO_ROOT/.gitignore"
-for entry in "personal/" ".local_config.yaml" ".env" ".cursorrules" "AGENTS.md" "GEMINI.md"; do
-  grep -qxF "$entry" "$GITIGNORE" 2>/dev/null || echo "$entry" >> "$GITIGNORE"
-done
+if command -v coworker &>/dev/null; then
+  echo ""
+  log "Syncing MCP config via coworker CLI..."
+
+  MCP_JSON="$REPO_ROOT/.mcp.json"
+  if [[ -f "$MCP_JSON" ]]; then
+    coworker import-mcp "$MCP_JSON" && ok "MCP servers imported"
+  fi
+
+  coworker sync && ok "Config synced to all tools"
+else
+  warn "coworker CLI not found. Run: pipx install $REPO_ROOT"
+  warn "Then re-run this script to sync MCP config."
+fi
 
 # =============================================================================
 # Done
@@ -237,42 +341,19 @@ done
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 ok "Setup complete!"
+echo "   Mode    : $INSTALL_MODE"
+echo "   Claude  : $CLAUDE_DIR"
+[[ -n "$OPENCODE_DIR" ]] && echo "   OpenCode: $OPENCODE_DIR"
 echo "   Created : $CREATED files"
 echo "   Updated : $UPDATED files"
 echo "   Skipped : $SKIPPED files (already up-to-date)"
 echo ""
-# =============================================================================
-# Step 10 — Sync MCP config via coworker CLI
-# =============================================================================
-if command -v coworker &>/dev/null; then
-  echo ""
-  log "Syncing MCP config via coworker CLI..."
-
-  # Import .mcp.json if it exists in repo root
-  MCP_JSON="$REPO_ROOT/.mcp.json"
-  if [[ -f "$MCP_JSON" ]]; then
-    log "Importing MCP servers from .mcp.json..."
-    coworker import-mcp "$MCP_JSON" && ok "MCP servers imported"
-  fi
-
-  # Run sync
-  coworker sync && ok "Config synced to all tools"
-else
-  warn "coworker CLI not found. Run: pipx install $REPO_ROOT"
-  warn "Then re-run this script to sync MCP config."
-fi
-
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Next steps:"
-echo "  1. Add env vars to ~/.coworker/.env (or ~/.zshrc):"
-echo "     GITHUB_PERSONAL_ACCESS_TOKEN=..."
-echo "     SLACK_BOT_TOKEN=..."
-echo "     TELEGRAM_BOT_TOKEN=..."
-echo "     TELEGRAM_CHAT_ID=..."
-echo "     DISCORD_TOKEN=..."
-echo "     DISCORD_GUILD_ID=..."
-echo "     GDRIVE_CREDENTIALS_PATH=..."
-echo "  2. Run: coworker sync"
-echo "  3. Start coding with AI — skills are ready!"
+echo "  Add env vars to ~/.coworker/.env or ~/.zshrc:"
+echo "    GITHUB_PERSONAL_ACCESS_TOKEN=..."
+echo "    SLACK_BOT_TOKEN=..."
+echo "    TELEGRAM_BOT_TOKEN=..."
+echo "    DISCORD_TOKEN=..."
+echo "  Run: coworker sync"
+echo "  Start coding — skills are ready!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

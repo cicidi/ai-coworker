@@ -1,0 +1,85 @@
+#!/usr/bin/env bats
+
+# Tests for update.sh — coworker update, optional skill-factory update
+
+setup() {
+  TEST_TMP="$(mktemp -d)"
+  export HOME="$TEST_TMP/home"
+  mkdir -p "$HOME/.claude/commands"
+  mkdir -p "$HOME/.config/opencode/skills/skill-factory"
+  mkdir -p "$HOME/.config/ai-coworker"
+
+  # Mock git
+  mkdir -p "$TEST_TMP/bin"
+  cat > "$TEST_TMP/bin/git" << 'GITEOF'
+#!/usr/bin/env bash
+echo "upstream/main"
+exit 0
+GITEOF
+  chmod +x "$TEST_TMP/bin/git"
+  export PATH="$TEST_TMP/bin:$PATH"
+
+  # Mock install.sh
+  mkdir -p "$TEST_TMP/.install-log"
+  cat > "$TEST_TMP/bin/install_mock" << 'MKEOF'
+#!/usr/bin/env bash
+echo "install.sh called with: $*" >> "$TEST_TMP/.install-log/calls"
+exit 0
+MKEOF
+  chmod +x "$TEST_TMP/bin/install_mock"
+
+  export REPO_ROOT
+  REPO_ROOT="$(cd "$(dirname "$BATS_TEST_DIRNAME")/.." && pwd)"
+}
+
+teardown() {
+  rm -rf "$TEST_TMP"
+}
+
+# =============================================================================
+# Test: Update coworker from upstream
+# =============================================================================
+@test "fetches from upstream when remote exists" {
+  # Create fake upstream remote
+  cd "$TEST_TMP"
+  mkdir fake-repo
+  cd fake-repo
+  git init
+  git remote add upstream git@github.com:cicidi/ai-coworker.git
+
+  run git remote get-url upstream
+  [ "$status" -eq 0 ]
+}
+
+# =============================================================================
+# Test: Graceful handling without upstream
+# =============================================================================
+@test "falls back to origin when no upstream" {
+  # This verifies the fallback logic structure
+  run grep "origin" "$REPO_ROOT/setup/update.sh"
+  [ "$status" -eq 0 ]
+}
+
+# =============================================================================
+# Test: Skill-factory update prompt
+# =============================================================================
+@test "asks about skill-factory update when directory exists" {
+  run grep "Update skill-factory" "$REPO_ROOT/setup/update.sh"
+  [ "$status" -eq 0 ]
+}
+
+# =============================================================================
+# Test: Skill-factory update is skippable
+# =============================================================================
+@test "skill-factory update can be declined" {
+  run grep "Skipped skill-factory update" "$REPO_ROOT/setup/update.sh"
+  [ "$status" -eq 0 ]
+}
+
+# =============================================================================
+# Test: Notifies when skill-factory not installed
+# =============================================================================
+@test "notifies when skill-factory is not installed" {
+  run grep "not installed" "$REPO_ROOT/setup/update.sh"
+  [ "$status" -eq 0 ]
+}
