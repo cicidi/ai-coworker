@@ -73,15 +73,17 @@ branch: feat/oauth2             # git branch --show-current
 每条一次 tool 调用，pre 和 post 分开写，各自独立：
 
 ```json
-{"ts":"2026-06-11T14:31:05+08:00","phase":"before","tool":"bash","call_id":"toolu_01","seq":3,"args":{"command":"ls","description":"List files"}}
-{"ts":"2026-06-11T14:31:10+08:00","phase":"after","tool":"bash","call_id":"toolu_01","seq":4,"result":"README.md\nsrc/","duration_ms":5230}
+{"ts":"2026-06-11T14:31:05+08:00","phase":"before","tool":"bash","tool_type":"builtin","call_id":"toolu_01","seq":3,"args":{"command":"ls","description":"List files"}}
+{"ts":"2026-06-11T14:31:10+08:00","phase":"after","tool":"bash","tool_type":"builtin","call_id":"toolu_01","seq":4,"result":"README.md\nsrc/","duration_ms":5230}
 ```
 
 | 字段 | 说明 |
 |------|------|
-| `ts` | 本地时间 |
+| `ts` | 本地时间，ISO 8601 + 时区 |
 | `phase` | `before` / `after` |
 | `tool` | tool 名称（Bash/Read/Write/Edit/Skill/Glob/Grep/TodoWrite/WebFetch...） |
+| `tool_type` | `builtin` / `mcp` |
+| `server_name` | MCP server 名称（仅 mcp 类型） |
 | `call_id` | tool 调用 ID，关联 before 和 after |
 | `seq` | 全局自增序号 |
 | `args` | tool 参数（仅 before） |
@@ -206,7 +208,10 @@ CREATE TABLE tool_calls (
     session_id      TEXT NOT NULL REFERENCES sessions(id),
     call_id         TEXT NOT NULL,
     tool            TEXT NOT NULL,
+    tool_type       TEXT DEFAULT 'builtin',    -- builtin | mcp
+    server_name     TEXT,                      -- MCP server name
     parent_call_id  TEXT,
+    parent_skill    TEXT,                      -- skill name 上下文
     args            TEXT,
     result          TEXT,
     duration_ms     INTEGER,
@@ -226,6 +231,7 @@ CREATE TABLE file_ops (
     path        TEXT NOT NULL,
     file_type   TEXT,
     project     TEXT,
+    skill_name  TEXT,                           -- 哪个 skill 触发此文件操作
     seq         INTEGER NOT NULL,
     ts          TEXT NOT NULL
 );
@@ -244,6 +250,49 @@ CREATE TABLE session_stats (
     duration_min  INTEGER,
     updated_at    TEXT NOT NULL
 );
+
+-- 技能元数据（由 import 脚本从 tool_calls 聚合）
+CREATE TABLE skills (
+    name           TEXT PRIMARY KEY,
+    total_calls    INTEGER DEFAULT 0,
+    last_invoked   TEXT,
+    first_invoked  TEXT
+);
+
+-- 知识卡片（由 Knowledge Skill 写入）
+CREATE TABLE knowledge (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    title           TEXT NOT NULL,
+    type            TEXT NOT NULL,              -- trap | best_practice | pattern | decision | constraint
+    session_id      TEXT REFERENCES sessions(id),
+    project         TEXT,
+    skills          TEXT,                       -- JSON array
+    summary         TEXT,
+    evidence        TEXT,                       -- JSON array
+    generated_at    TEXT NOT NULL,
+    merged_to_skill TEXT
+);
+CREATE INDEX idx_knowledge_project ON knowledge(project);
+CREATE INDEX idx_knowledge_session ON knowledge(session_id);
+
+-- Session 总结（由 Knowledge Skill 写入）
+CREATE TABLE session_summaries (
+    session_id             TEXT PRIMARY KEY REFERENCES sessions(id),
+    sop_workflows          TEXT,                -- JSON array
+    context_to_remember    TEXT,
+    effective_operations   TEXT,                -- JSON array
+    pitfalls_and_fixes     TEXT,                -- JSON array
+    wasted_actions         TEXT,                -- JSON array
+    bottlenecks            TEXT,                -- JSON array
+    efficiency_tip         TEXT,
+    efficiency_score       REAL,
+    think_action_ratio     REAL,
+    edit_redundancy        REAL,
+    loop_count             INTEGER,
+    user_wait_minutes      REAL,
+    memory_keywords        TEXT,                -- 提取的关键词供 Obsidian graph
+    generated_at           TEXT NOT NULL
+);
 ```
 
 ### 7.2 导入流程
@@ -254,14 +303,35 @@ JSONL raw data
   import.py
       ├─ 合并 pre+post tool call (by call_id)
       ├─ 提取 file_ops (Read/Write/Edit/Glob → path, type, project)
-      ├─ 推断 parent_call_id (调用链)
+      ├─ 推断 parent_call_id + parent_skill (调用链)
+      ├─ 聚合 skills 表
       ├─ 从 CLAUDE.md 提取 initiative
-      └─ 写入 session_stats
+      ├─ 计算 session_stats
+      └─ 检测 git branch、initiative 切换
       ↓
   analytics.db
 ```
 
-### 7.3 分析查询
+### 7.3 Knowledge Skill（session 总结）
+
+独立 skill，调用 OpenCode SDK 非交互模式，读取 SQLite 数据，喂给 LLM 生成结构化总结。
+
+**触发方式：**
+- Session 关闭时自动运行（import 脚本完成后的钩子）
+- 也可手动触发：`coworker knowledge summarize <session_id>`
+- Batch 模式：`coworker knowledge analyze --since yesterday`
+
+**流程：**
+```
+SQLite (session data) → Knowledge Skill (LLM) → SQLite (session_summaries, knowledge)
+```
+
+**写入表：**
+- `session_summaries` — per-session 结构化总结
+- `knowledge` — 跨 session 的知识卡片（pattern ≥2 次触发）
+- `skills` — 更新技能元数据
+
+### 7.4 分析查询
 
 ```sql
 -- skill/tool 调用统计（按 session/initiative/branch）
