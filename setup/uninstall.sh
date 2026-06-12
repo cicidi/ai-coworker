@@ -85,3 +85,34 @@ esac
 echo ""
 ok "Uninstall complete — removed $REMOVED skill files"
 echo "   personal/ and .local_config.yaml preserved"
+
+# Cleanup analytics hooks from Claude Code settings
+CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+if [[ -f "$CLAUDE_SETTINGS" ]]; then
+  python3 -c "
+import json
+with open('$CLAUDE_SETTINGS') as f: cfg = json.load(f)
+hooks = cfg.get('hooks', {})
+for h in ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']:
+    hooks.pop(h, None)
+if not hooks: cfg.pop('hooks', None)
+with open('$CLAUDE_SETTINGS', 'w') as f: json.dump(cfg, f, indent=2)
+print('Hooks removed')
+" 2>/dev/null && echo "  Analytics hooks removed from Claude Code"
+fi
+
+# Remove OpenCode plugin registration
+OPENCODE_CONFIG="$HOME/.config/opencode/config.json"
+if [[ -f "$OPENCODE_CONFIG" ]]; then
+  python3 -c "
+import json
+with open('$OPENCODE_CONFIG') as f: cfg = json.load(f)
+plugins = cfg.get('plugin', [])
+plugin_path = '$REPO_ROOT/.opencode/coworker-analytics'
+cfg['plugin'] = [p for p in plugins if p != plugin_path]
+with open('$OPENCODE_CONFIG', 'w') as f: json.dump(cfg, f, indent=2)
+print('Plugin removed')
+" 2>/dev/null && echo "  OpenCode analytics plugin unregistered"
+fi
+
+echo "   Analytics data at ~/.coworker/analytics/ preserved (delete manually if needed)"

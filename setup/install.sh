@@ -318,7 +318,67 @@ if [[ "$INSTALL_MODE" == "project" ]]; then
 fi
 
 # =============================================================================
-# Step 13 — MCP config sync
+# Step 13 — Analytics Listener Setup
+# =============================================================================
+echo ""
+log "Setting up analytics listener..."
+
+ANALYTICS_DIR="$HOME/.coworker/analytics"
+mkdir -p "$ANALYTICS_DIR/sessions"
+mkdir -p "$ANALYTICS_DIR/hooks"
+
+HOOKS_SRC="$REPO_ROOT/src/coworker/analytics/hooks"
+if [[ -d "$HOOKS_SRC" ]]; then
+  cp "$HOOKS_SRC/"*.sh "$ANALYTICS_DIR/hooks/"
+  chmod +x "$ANALYTICS_DIR/hooks/"*.sh
+  ok "Hook scripts installed to $ANALYTICS_DIR/hooks/"
+else
+  warn "Hook scripts not found — skipping"
+fi
+
+# Configure Claude Code hooks
+CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+if [[ ! -f "$CLAUDE_SETTINGS" ]]; then
+  echo '{}' > "$CLAUDE_SETTINGS"
+fi
+python3 -c "
+import json
+with open('$CLAUDE_SETTINGS') as f: cfg = json.load(f)
+cfg.setdefault('hooks', {})
+cfg['hooks']['UserPromptSubmit'] = [{'command': '$HOME/.coworker/analytics/hooks/on-user-prompt.sh'}]
+cfg['hooks']['PreToolUse'] = [{'command': '$HOME/.coworker/analytics/hooks/on-pre-tool.sh'}]
+cfg['hooks']['PostToolUse'] = [{'command': '$HOME/.coworker/analytics/hooks/on-post-tool.sh'}]
+cfg['hooks']['Stop'] = [{'command': '$HOME/.coworker/analytics/hooks/on-stop.sh'}]
+with open('$CLAUDE_SETTINGS', 'w') as f: json.dump(cfg, f, indent=2)
+" 2>/dev/null && ok "Claude Code hooks configured" || warn "Failed to configure Claude Code hooks"
+
+# Register OpenCode analytics plugin
+OPENCODE_CONFIG="$HOME/.config/opencode/config.json"
+if [[ -f "$OPENCODE_CONFIG" ]]; then
+  python3 -c "
+import json
+with open('$OPENCODE_CONFIG') as f: cfg = json.load(f)
+plugins = cfg.setdefault('plugin', [])
+plugin_path = '$REPO_ROOT/.opencode/coworker-analytics'
+if plugin_path not in plugins:
+    plugins.append(plugin_path)
+with open('$OPENCODE_CONFIG', 'w') as f: json.dump(cfg, f, indent=2)
+print('OpenCode plugin registered')
+" 2>/dev/null && ok "OpenCode analytics plugin registered" || warn "Failed to register OpenCode plugin"
+fi
+
+# Initialize analytics DB
+python3 -c "
+import sys; sys.path.insert(0, '$REPO_ROOT')
+from src.coworker.analytics.db import init_db
+init_db()
+print('Analytics DB initialized')
+" 2>/dev/null && ok "Analytics database initialized" || warn "Analytics DB init skipped"
+
+echo "Analytics listener setup complete."
+
+# =============================================================================
+# Step 14 — MCP config sync
 # =============================================================================
 if command -v coworker &>/dev/null; then
   echo ""
@@ -355,5 +415,7 @@ echo "    SLACK_BOT_TOKEN=..."
 echo "    TELEGRAM_BOT_TOKEN=..."
 echo "    DISCORD_TOKEN=..."
 echo "  Run: coworker sync"
+echo "  Analytics: coworker dashboard"
+echo "  Sessions recorded to: ~/.coworker/analytics/sessions/"
 echo "  Start coding — skills are ready!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
