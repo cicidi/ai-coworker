@@ -9,11 +9,18 @@ from rich.table import Table
 from rich import print as rprint
 
 from .config import (
-    GLOBAL_DIR, GLOBAL_CONFIG, PROJECT_CONFIG_NAME,
-    load_global_config, load_project_config, merged_config, save_config
+    GLOBAL_DIR, GLOBAL_CONFIG, PROJECT_CONFIG_NAME, INITIATIVES_DIR,
+    load_global_config, load_project_config, merged_config, save_config,
+    load_project_catalog, save_project_catalog,
+    load_initiative, save_initiative, list_initiatives, initiative_exists,
 )
-from .models import CoworkerConfig
+from .models import (
+    CoworkerConfig, ProjectEntry, ProjectRef, ProjectCatalog,
+    InitiativeConfig, InitiativeProjectRef, LinkRef, Decision, ReferenceDoc,
+    KnowledgePoolEntry,
+)
 from .adapters import ADAPTERS
+from .initiatives.manager import InitiativeManager
 
 console = Console()
 
@@ -306,3 +313,461 @@ def import_mcp(mcp_file, dry_run):
     save_config(config, GLOBAL_CONFIG)
     console.print(f"\n[green]✓[/green] Added/updated {len(new_servers)} server(s) in {GLOBAL_CONFIG}")
     console.print("Run [cyan]coworker sync[/cyan] to apply to all tools.")
+
+
+# ── Project Catalog ───────────────────────────────────────────────────────
+
+
+@main.group()
+def project():
+    """Manage project catalog (project.yaml)."""
+    pass
+
+
+@project.command("list")
+def project_list():
+    """List all tracked projects."""
+    catalog = load_project_catalog()
+    if not catalog.projects:
+        console.print(
+            "[dim]No projects configured. Use 'coworker project add'.[/dim]"
+        )
+        return
+    table = Table(title="Project Catalog")
+    table.add_column("Name", style="cyan")
+    table.add_column("Path")
+    table.add_column("Upstream")
+    table.add_column("Downstream")
+    for p in catalog.projects:
+        up = ", ".join(u.name for u in p.upstream) or "-"
+        down = ", ".join(d.name for d in p.downstream) or "-"
+        table.add_row(p.name, p.local_path, up, down)
+    console.print(table)
+
+
+@project.command("show")
+@click.argument("name")
+def project_show(name):
+    """Show details of a single project."""
+    catalog = load_project_catalog()
+    for p in catalog.projects:
+        if p.name == name:
+            import yaml
+            data = p.model_dump(exclude_none=True)
+            console.print(
+                yaml.dump(data, default_flow_style=False, allow_unicode=True)
+            )
+            return
+    console.print(f"[red]Project '{name}' not found.[/red]")
+
+
+@project.command("add")
+@click.argument("name")
+@click.option("--path", "local_path", default=None, help="Local directory")
+@click.option("--repo", default=None, help="Git remote URL")
+@click.option("--team", default=None, help="Owning team")
+def project_add(name, local_path, repo, team):
+    """Add a project to the catalog."""
+    catalog = load_project_catalog()
+    for p in catalog.projects:
+        if p.name == name:
+            console.print(f"[yellow]Project '{name}' already exists.[/yellow]")
+            return
+
+    entry = ProjectEntry(
+        name=name,
+        local_path=local_path or str(Path.cwd()),
+        repo=repo or "",
+        team=team or "",
+    )
+    catalog.projects.append(entry)
+    save_project_catalog(catalog)
+    console.print(f"[green]Added project '{name}' to catalog.[/green]")
+
+
+@project.command("edit")
+@click.argument("name")
+@click.option("--path", "local_path", default=None)
+@click.option("--repo", default=None)
+@click.option(
+    "--add-upstream", multiple=True, help="Add upstream project name"
+)
+@click.option(
+    "--add-downstream", multiple=True, help="Add downstream project name"
+)
+@click.option("--add-kp-url", "kp_url", default=None)
+@click.option("--add-kp-type", "kp_type", default="other")
+def project_edit(
+    name, local_path, repo, add_upstream, add_downstream, kp_url, kp_type
+):
+    """Edit a project entry."""
+    catalog = load_project_catalog()
+    for p in catalog.projects:
+        if p.name == name:
+            if local_path:
+                p.local_path = local_path
+            if repo:
+                p.repo = repo
+            for up in add_upstream:
+                if not any(u.name == up for u in p.upstream):
+                    p.upstream.append(ProjectRef(name=up))
+            for down in add_downstream:
+                if not any(d.name == down for d in p.downstream):
+                    p.downstream.append(ProjectRef(name=down))
+            if kp_url:
+                p.knowledge_pool.append(
+                    KnowledgePoolEntry(url=kp_url, type=kp_type)
+                )
+            save_project_catalog(catalog)
+            console.print(f"[green]Updated project '{name}'.[/green]")
+            return
+    console.print(f"[red]Project '{name}' not found.[/red]")
+
+
+@project.command("remove")
+@click.argument("name")
+def project_remove(name):
+    """Remove a project from the catalog."""
+    catalog = load_project_catalog()
+    before = len(catalog.projects)
+    catalog.projects = [p for p in catalog.projects if p.name != name]
+    if len(catalog.projects) == before:
+        console.print(f"[yellow]Project '{name}' not found.[/yellow]")
+        return
+    save_project_catalog(catalog)
+    console.print(f"[green]Removed project '{name}'.[/green]")
+
+
+@project.command("sync")
+def project_sync():
+    """Re-inject static context into IDE configs."""
+    mgr = InitiativeManager()
+    actions = mgr.inject_static_context()
+    for action in actions:
+        console.print(f"  [green]✓[/green] {action}")
+    console.print("[bold green]Static context synced.[/bold green]")
+
+
+# ── Initiative ─────────────────────────────────────────────────────────────
+
+
+@main.group()
+def initiative():
+    """Manage initiatives."""
+    pass
+
+
+@initiative.command("start")
+@click.argument("name")
+@click.option("--description", "-d", default="")
+@click.option("--project", "-p", "proj_name", default=None, help="Project name from catalog")
+@click.option("--role", default="peer", help="Project role: upstream|downstream|peer")
+@click.option("--branch", "-b", "branches", default="main", help="Branches (comma-separated)")
+def initiative_start(name, description, proj_name, role, branches):
+    """Quick-start: create, add project, and activate in one step."""
+    mgr = InitiativeManager()
+
+    try:
+        mgr.create(name, description)
+    except FileExistsError:
+        console.print(f"[yellow]Initiative '{name}' exists, activating it.[/yellow]")
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        return
+
+    if proj_name:
+        config = load_initiative(name)
+        if config and not any(p.name == proj_name for p in config.projects):
+            branch_list = [b.strip() for b in branches.split(",") if b.strip()]
+            config.projects.append(
+                InitiativeProjectRef(
+                    name=proj_name,
+                    role=role,
+                    branches=branch_list,
+                )
+            )
+            save_initiative(config)
+
+    try:
+        actions = mgr.activate(name)
+        for action in actions:
+            console.print(f"  [green]✓[/green] {action}")
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+
+
+@initiative.command("create")
+@click.argument("name")
+@click.option("--description", "-d", default="")
+def initiative_create(name, description):
+    """Create a new initiative."""
+    mgr = InitiativeManager()
+    try:
+        mgr.create(name, description)
+        console.print(
+            f"[green]Created initiative '{name}'.[/green]"
+        )
+    except FileExistsError as e:
+        console.print(f"[red]{e}[/red]")
+
+
+@initiative.command("edit")
+@click.argument("name")
+@click.option("--description", "-d", default=None)
+@click.option(
+    "--add-project", "add_proj", default=None,
+    help="Add project (name:role:branches)",
+)
+@click.option(
+    "--add-link", "add_link_spec", default=None,
+    help="Add link (Title|URL)",
+)
+@click.option(
+    "--add-decision", "add_decision_spec", default=None,
+    help="Add decision (date|decision|rationale|by)",
+)
+@click.option(
+    "--add-doc", "add_doc_spec", default=None,
+    help="Add reference doc (Title|path)",
+)
+@click.option(
+    "--archive", "do_archive", is_flag=True, default=False,
+    help="Archive the initiative",
+)
+def initiative_edit(
+    name, description, add_proj, add_link_spec, add_decision_spec,
+    add_doc_spec, do_archive,
+):
+    """Edit an existing initiative."""
+    config = load_initiative(name)
+    if config is None:
+        console.print(f"[red]Initiative '{name}' not found.[/red]")
+        return
+
+    if description is not None:
+        config.description = description
+    if do_archive:
+        config.status = "archived"
+
+    if add_proj:
+        parts = add_proj.split(":")
+        proj_name = parts[0]
+        existing = [p for p in config.projects if p.name == proj_name]
+        if existing:
+            console.print(
+                f"[yellow]Project '{proj_name}' is already in this initiative.[/yellow]"
+            )
+            return
+        proj = InitiativeProjectRef(
+            name=proj_name,
+            role=parts[1] if len(parts) > 1 else "peer",
+            branches=(
+                parts[2].split(",") if len(parts) > 2 and parts[2] else []
+            ),
+        )
+        config.projects.append(proj)
+
+    if add_link_spec:
+        parts = add_link_spec.split("|", 1)
+        config.links.append(
+            LinkRef(
+                title=parts[0],
+                url=parts[1] if len(parts) > 1 else parts[0],
+            )
+        )
+
+    if add_decision_spec:
+        parts = add_decision_spec.split("|")
+        config.decisions.append(
+            Decision(
+                date=parts[0] if len(parts) > 0 else "",
+                decision=parts[1] if len(parts) > 1 else "",
+                rationale=parts[2] if len(parts) > 2 else "",
+                by=parts[3] if len(parts) > 3 else "",
+            )
+        )
+
+    if add_doc_spec:
+        parts = add_doc_spec.split("|", 1)
+        config.reference_docs.append(
+            ReferenceDoc(
+                title=parts[0],
+                path=parts[1] if len(parts) > 1 else parts[0],
+            )
+        )
+
+    save_initiative(config)
+    console.print(f"[green]Updated initiative '{name}'.[/green]")
+
+
+@initiative.command("list")
+@click.option("--verbose", "-v", is_flag=True, default=False)
+def initiative_list(verbose):
+    """List all initiatives."""
+    mgr = InitiativeManager()
+    active = mgr.active_name()
+    initiatives = mgr.list_all()
+    if not initiatives:
+        console.print(
+            "[dim]No initiatives. Use 'coworker initiative create'.[/dim]"
+        )
+        return
+
+    table = Table(title="Initiatives")
+    table.add_column("Name", style="cyan")
+    table.add_column("Status")
+    table.add_column("Active")
+    if verbose:
+        table.add_column("Projects")
+    table.add_column("Description")
+    for i in initiatives:
+        mark = "[green]✓[/green]" if i.name == active else ""
+        sc = "green" if i.status == "active" else "dim"
+        row = [
+            i.name,
+            f"[{sc}]{i.status}[/{sc}]",
+            mark,
+        ]
+        if verbose:
+            proj_str = ", ".join(p.name for p in i.projects) or "-"
+            row.append(proj_str)
+        row.append(i.description or "-")
+        table.add_row(*row)
+    console.print(table)
+
+
+@initiative.command("show")
+@click.argument("name")
+def initiative_show(name):
+    """Show full initiative config."""
+    config = load_initiative(name)
+    if config is None:
+        console.print(f"[red]Initiative '{name}' not found.[/red]")
+        return
+    import yaml
+    data = config.model_dump(exclude_none=True)
+    console.print(
+        yaml.dump(data, default_flow_style=False, allow_unicode=True)
+    )
+
+
+@initiative.command("activate")
+@click.argument("name")
+@click.option(
+    "--project", "project_dir", default=None,
+    help="Project directory for injection",
+)
+def initiative_activate(name, project_dir):
+    """Activate an initiative (inject context into IDE configs)."""
+    mgr = InitiativeManager()
+    pd = Path(project_dir) if project_dir else None
+    try:
+        actions = mgr.activate(name, project_dir=pd)
+        for action in actions:
+            console.print(f"  [green]✓[/green] {action}")
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+
+
+@initiative.command("deactivate")
+@click.option(
+    "--project", "project_dir", default=None,
+    help="Project directory",
+)
+def initiative_deactivate(project_dir):
+    """Deactivate current initiative."""
+    mgr = InitiativeManager()
+    pd = Path(project_dir) if project_dir else None
+    actions = mgr.deactivate(project_dir=pd)
+    for action in actions:
+        console.print(f"  [green]✓[/green] {action}")
+
+
+@initiative.command("remove")
+@click.argument("name")
+@click.option("--force", is_flag=True, default=False, help="Skip confirmation")
+def initiative_remove(name, force):
+    """Remove an initiative permanently."""
+    mgr = InitiativeManager()
+    config = mgr.show(name)
+    if config is None:
+        console.print(f"[red]Initiative '{name}' not found.[/red]")
+        return
+
+    if not force:
+        ok = click.confirm(
+            f"Remove initiative '{name}' permanently? This cannot be undone.",
+            default=False,
+        )
+        if not ok:
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+    try:
+        mgr.remove(name)
+        console.print(f"[green]Removed initiative '{name}'.[/green]")
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+
+
+@initiative.command("publish")
+@click.argument("name")
+def initiative_publish(name):
+    """Publish initiative to coworker fork repo."""
+    mgr = InitiativeManager()
+    try:
+        url = mgr.publish(name)
+        console.print("[green]Published![/green]")
+        console.print(f"Shareable URL: [cyan]{url}[/cyan]")
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+
+
+@initiative.command("import")
+@click.argument("url")
+@click.option(
+    "--on-conflict",
+    type=click.Choice(["overwrite", "reject", "ask"]),
+    default="ask",
+)
+def initiative_import(url, on_conflict):
+    """Import an initiative from a raw GitHub URL."""
+    mgr = InitiativeManager()
+    try:
+        config = mgr.import_from_url(url, on_conflict=on_conflict)
+        console.print(
+            f"[green]Imported initiative '{config.name}'.[/green]"
+        )
+    except FileExistsError as e:
+        console.print(f"[yellow]{e}[/yellow]")
+    except (ConnectionError, ValueError) as e:
+        console.print(f"[red]{e}[/red]")
+
+
+@initiative.command("analytics-db-init")
+def analytics_db_init():
+    """Initialize analytics SQLite database."""
+    from .analytics.db import init_db
+    init_db()
+    console.print("[green]Analytics database initialized.[/green]")
+
+
+@initiative.command("analytics-import")
+def analytics_import():
+    """Import raw JSONL sessions into SQLite."""
+    from .analytics.import_data import import_all
+    import_all()
+
+
+@initiative.command("dashboard")
+@click.option("--port", default=8080, help="Port to listen on")
+@click.option("--db", default=None, help="Path to analytics database")
+def dashboard_serve(port, db):
+    """Start the analytics dashboard."""
+    import os
+    if db:
+        os.environ["COWORKER_ANALYTICS_DB"] = db
+    import uvicorn
+    from .dashboard.app import app
+    console.print(f"[green]Dashboard: http://localhost:{port}[/green]")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
