@@ -48,6 +48,8 @@ closed: "2026-06-11T15:45:10+08:00"
 ide: opencode
 project: ai-coworker
 cwd: /home/cicidi/project/ai-coworker
+initiative: auth-migration     # 从 CLAUDE.md 读取，中途可追加
+branch: feat/oauth2             # git branch --show-current
 ```
 
 ### 3.2 messages.jsonl — chat 消息
@@ -155,83 +157,132 @@ cwd: /home/cicidi/project/ai-coworker
 - 内存中的自增 `seq` 计数器
 - 自动创建 session 目录
 
-## 6. SQLite 数据库
+## 6. Listener 职责边界
 
-> JSONL raw data 为采集阶段使用。导入 SQLite 后进行结构化分析。
+**Listener 只管 dump raw data，不做任何处理：**
+- 写入 messages.jsonl、tools.jsonl、session.yaml
+- 不解析文件路径、不推断 project、不合并 pre/post
 
-### 6.1 表结构
+**DB import 脚本负责所有数据处理：**
+- 合并 pre+post tool call
+- 解析文件操作（Read/Write/Edit/Glob → file_ops 表）
+- 推断 project（从路径匹配 project catalog）
+- 推断 file_type（从扩展名）
+- 检测调用链（parent_call_id）
+- 从 CLAUDE.md 提取 initiative
+- 检测 git branch、initiative 切换
+
+## 7. SQLite 数据库 & 导入脚本
+
+> Import 脚本负责 merge / clean / parse，写入 SQLite。
+
+### 7.1 表结构
 
 ```sql
 CREATE TABLE sessions (
-    id          TEXT PRIMARY KEY,
-    ide         TEXT NOT NULL,
-    project     TEXT,
-    cwd         TEXT,
-    model       TEXT,
-    created_at  TEXT NOT NULL,
-    closed_at   TEXT
+    id            TEXT PRIMARY KEY,
+    ide           TEXT NOT NULL,
+    project       TEXT,
+    cwd           TEXT,
+    model         TEXT,
+    initiative    TEXT,
+    branch        TEXT,
+    created_at    TEXT NOT NULL,
+    closed_at     TEXT
 );
 
 CREATE TABLE messages (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL REFERENCES sessions(id),
-    seq         INTEGER NOT NULL,
-    type        TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    ts          TEXT NOT NULL
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id    TEXT NOT NULL REFERENCES sessions(id),
+    seq           INTEGER NOT NULL,
+    type          TEXT NOT NULL,
+    content       TEXT,
+    ts            TEXT NOT NULL
 );
-CREATE INDEX idx_messages_session ON messages(session_id);
+CREATE INDEX idx_msg_session_seq ON messages(session_id, seq);
 
 CREATE TABLE tool_calls (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL REFERENCES sessions(id),
+    call_id         TEXT NOT NULL,
+    tool            TEXT NOT NULL,
+    parent_call_id  TEXT,
+    args            TEXT,
+    result          TEXT,
+    duration_ms     INTEGER,
+    seq_before      INTEGER,
+    seq_after       INTEGER,
+    ts              TEXT NOT NULL
+);
+CREATE INDEX idx_tc_session ON tool_calls(session_id);
+CREATE INDEX idx_tc_parent ON tool_calls(parent_call_id);
+CREATE INDEX idx_tc_tool ON tool_calls(tool);
+
+CREATE TABLE file_ops (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL REFERENCES sessions(id),
     call_id     TEXT NOT NULL,
-    tool        TEXT NOT NULL,
-    args        TEXT,
-    result      TEXT,
-    duration_ms INTEGER,
-    seq_before  INTEGER,
-    seq_after   INTEGER,
+    op          TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    file_type   TEXT,
+    project     TEXT,
+    seq         INTEGER NOT NULL,
     ts          TEXT NOT NULL
 );
-CREATE INDEX idx_tool_calls_session ON tool_calls(session_id);
-CREATE INDEX idx_tool_calls_tool ON tool_calls(tool);
+CREATE INDEX idx_fo_session ON file_ops(session_id);
+CREATE INDEX idx_fo_type ON file_ops(file_type);
+CREATE INDEX idx_fo_project ON file_ops(project);
+
+CREATE TABLE session_stats (
+    session_id    TEXT PRIMARY KEY REFERENCES sessions(id),
+    message_count INTEGER DEFAULT 0,
+    tool_count    INTEGER DEFAULT 0,
+    skill_count   INTEGER DEFAULT 0,
+    read_count    INTEGER DEFAULT 0,
+    write_count   INTEGER DEFAULT 0,
+    bash_count    INTEGER DEFAULT 0,
+    duration_min  INTEGER,
+    updated_at    TEXT NOT NULL
+);
 ```
 
-### 6.2 分析视图
+### 7.2 导入流程
+
+```
+JSONL raw data
+      ↓
+  import.py
+      ├─ 合并 pre+post tool call (by call_id)
+      ├─ 提取 file_ops (Read/Write/Edit/Glob → path, type, project)
+      ├─ 推断 parent_call_id (调用链)
+      ├─ 从 CLAUDE.md 提取 initiative
+      └─ 写入 session_stats
+      ↓
+  analytics.db
+```
+
+### 7.3 分析查询
 
 ```sql
-CREATE VIEW skill_calls AS
-SELECT * FROM tool_calls WHERE tool = 'Skill';
+-- skill/tool 调用统计（按 session/initiative/branch）
+SELECT s.initiative, s.branch, t.tool, COUNT(*) AS cnt
+FROM tool_calls t JOIN sessions s ON s.id = t.session_id
+WHERE t.tool = 'Skill'
+GROUP BY s.initiative, s.branch;
 
-CREATE VIEW planning AS
-SELECT * FROM tool_calls WHERE tool = 'TodoWrite';
+-- 文件读写统计（按类型/项目）
+SELECT project, file_type, op, COUNT(*) AS cnt
+FROM file_ops GROUP BY project, file_type, op
+ORDER BY cnt DESC;
 
-CREATE VIEW session_stats AS
-SELECT
-    s.id,
-    s.ide,
-    s.project,
-    s.created_at,
-    s.closed_at,
-    COUNT(DISTINCT m.id) AS message_count,
-    COUNT(DISTINCT t.id) AS tool_count,
-    COUNT(DISTINCT CASE WHEN t.tool = 'Skill' THEN t.id END) AS skill_count
-FROM sessions s
-LEFT JOIN messages m ON m.session_id = s.id
-LEFT JOIN tool_calls t ON t.session_id = s.id
-GROUP BY s.id;
+-- session 完整时间线
+SELECT seq, type, content, tool, args, result FROM messages m
+LEFT JOIN tool_calls t ON t.call_id = m.tool_call_id
+WHERE m.session_id = ?
+ORDER BY seq;
 ```
 
-### 6.3 导入逻辑
-
-```
-JSONL files → Python/Go 脚本 → SQLite
-```
-
-pre+post 合并：按 `call_id` group，两条时合并为一行（args + result + duration_ms），只有一条时保留部分数据。
-
-## 7. 安装
+## 8. 安装
 
 `setup/install.sh` 负责：
 
@@ -242,7 +293,7 @@ pre+post 合并：按 `call_id` group，两条时合并为一行（args + result
 
 OpenCode 侧无需安装 —— plugin 随 `.opencode/` 目录自带。
 
-## 8. 错误处理
+## 9. 错误处理
 
 核心原则：listener 出错不影响 AI 正常工作。
 
@@ -256,7 +307,7 @@ OpenCode 侧无需安装 —— plugin 随 `.opencode/` 目录自带。
 
 所有 hook 脚本和 plugin 入口均使用 try-catch + 静默降级。
 
-## 9. 测试策略
+## 10. 测试策略
 
 手工验证流程：
 
@@ -265,3 +316,8 @@ OpenCode 侧无需安装 —— plugin 随 `.opencode/` 目录自带。
 3. 结束会话
 4. 检查 `~/.coworker/analytics/sessions/` 下是否生成正确的文件
 5. 验证 JSONL 每行都是合法 JSON，时间戳正确，seq 自增不跳
+
+## 11. TODO / 依赖项
+
+- **initiative 追踪**：当前 `initiative-create/activate` 将 INITIATIVE block 注入 CLAUDE.md。DB import 脚本需要解析 CLAUDE.md 提取当前 initiative。listener 自身的 session.yaml 不一定包含 initiative（由 import 脚本补全）。
+- **skill 5/6**（session 总结 + memory-search）：不在本次范围，后续独立设计。
