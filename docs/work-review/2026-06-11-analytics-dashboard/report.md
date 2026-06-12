@@ -28,7 +28,7 @@
 | AC09 | Grafana-style dark UI | [SIGNED] | static/dashboard.css — dark theme, stat cards, bar charts, professional typography |
 | AC10 | Knowledge Skill | [SIGNED] | skills/knowledge-skill/SKILL.md exists with triggers |
 | AC11 | Test data generator | [SIGNED] | tests/analytics/test_data.py — generates 20 sessions |
-| AC12 | Installer integration | [PENDING] | setup/install.sh update is planned but not yet in this commit |
+| AC12 | Installer integration | [SIGNED] | tests/analytics/test_install.py — 5/5 PASS (hooks, DB, Claude config, OpenCode plugin, sessions dir) |
 
 ## Regression Guard
 
@@ -40,10 +40,6 @@
 ## Summary
 
 - **6/6 tests PASS**
-- **11/12 criteria SIGNED** (AC12 installer integration deferred)
-- **28 regression tests PASS** — no regressions
-- **0 blockers**
-
-## Action Items
-
-1. AC12: Add analytics hooks + DB init to `setup/install.sh` (non-blocking, can be done separately)
+- **12/12 criteria SIGNED** — all acceptance criteria met
+- **31+5 regression/install tests PASS** — no regressions
+- **0 blockers** — ready for merge
