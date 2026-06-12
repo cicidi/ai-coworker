@@ -155,17 +155,94 @@ cwd: /home/cicidi/project/ai-coworker
 - 内存中的自增 `seq` 计数器
 - 自动创建 session 目录
 
-## 6. 安装
+## 6. SQLite 数据库
+
+> JSONL raw data 为采集阶段使用。导入 SQLite 后进行结构化分析。
+
+### 6.1 表结构
+
+```sql
+CREATE TABLE sessions (
+    id          TEXT PRIMARY KEY,
+    ide         TEXT NOT NULL,
+    project     TEXT,
+    cwd         TEXT,
+    model       TEXT,
+    created_at  TEXT NOT NULL,
+    closed_at   TEXT
+);
+
+CREATE TABLE messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL REFERENCES sessions(id),
+    seq         INTEGER NOT NULL,
+    type        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    ts          TEXT NOT NULL
+);
+CREATE INDEX idx_messages_session ON messages(session_id);
+
+CREATE TABLE tool_calls (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL REFERENCES sessions(id),
+    call_id     TEXT NOT NULL,
+    tool        TEXT NOT NULL,
+    args        TEXT,
+    result      TEXT,
+    duration_ms INTEGER,
+    seq_before  INTEGER,
+    seq_after   INTEGER,
+    ts          TEXT NOT NULL
+);
+CREATE INDEX idx_tool_calls_session ON tool_calls(session_id);
+CREATE INDEX idx_tool_calls_tool ON tool_calls(tool);
+```
+
+### 6.2 分析视图
+
+```sql
+CREATE VIEW skill_calls AS
+SELECT * FROM tool_calls WHERE tool = 'Skill';
+
+CREATE VIEW planning AS
+SELECT * FROM tool_calls WHERE tool = 'TodoWrite';
+
+CREATE VIEW session_stats AS
+SELECT
+    s.id,
+    s.ide,
+    s.project,
+    s.created_at,
+    s.closed_at,
+    COUNT(DISTINCT m.id) AS message_count,
+    COUNT(DISTINCT t.id) AS tool_count,
+    COUNT(DISTINCT CASE WHEN t.tool = 'Skill' THEN t.id END) AS skill_count
+FROM sessions s
+LEFT JOIN messages m ON m.session_id = s.id
+LEFT JOIN tool_calls t ON t.session_id = s.id
+GROUP BY s.id;
+```
+
+### 6.3 导入逻辑
+
+```
+JSONL files → Python/Go 脚本 → SQLite
+```
+
+pre+post 合并：按 `call_id` group，两条时合并为一行（args + result + duration_ms），只有一条时保留部分数据。
+
+## 7. 安装
 
 `setup/install.sh` 负责：
 
 1. 创建 `~/.coworker/analytics/sessions/` 目录
 2. 复制 4 个 hook 脚本到 `~/.coworker/analytics/hooks/`
 3. 将 hooks 配置 merge 到项目的 `.claude/settings.json`
+4. 创建 SQLite 数据库 `~/.coworker/analytics/analytics.db` 并执行 DDL
 
 OpenCode 侧无需安装 —— plugin 随 `.opencode/` 目录自带。
 
-## 7. 错误处理
+## 8. 错误处理
 
 核心原则：listener 出错不影响 AI 正常工作。
 
@@ -179,7 +256,7 @@ OpenCode 侧无需安装 —— plugin 随 `.opencode/` 目录自带。
 
 所有 hook 脚本和 plugin 入口均使用 try-catch + 静默降级。
 
-## 8. 测试策略
+## 9. 测试策略
 
 手工验证流程：
 
