@@ -49,3 +49,90 @@ class CoworkerConfig(BaseModel):
     claude: ClaudeOverrides = Field(default_factory=ClaudeOverrides)
     gemini: GeminiOverrides = Field(default_factory=GeminiOverrides)
     opencode: OpenCodeOverrides = Field(default_factory=OpenCodeOverrides)
+
+
+# ── Project Catalog (Level 1 — Static) ──────────────────────────────────────
+
+
+class KnowledgePoolEntry(BaseModel):
+    url: str = ""
+    path: str = ""
+    type: str = ""
+
+
+class GitHubRef(BaseModel):
+    owner: str
+    repo: str
+
+
+class SlackRef(BaseModel):
+    channel: str
+    id: str = ""
+
+
+class RedditRef(BaseModel):
+    subreddit: str
+
+
+class Refs(BaseModel):
+    github: list[GitHubRef] = Field(default_factory=list)
+    slack: list[SlackRef] = Field(default_factory=list)
+    reddit: list[RedditRef] = Field(default_factory=list)
+
+
+class ProjectRef(BaseModel):
+    name: str
+
+
+class ProjectEntry(BaseModel):
+    name: str
+    local_path: str
+    repo: str = ""
+    team: str = ""
+    env: dict[str, str] = Field(default_factory=dict)
+    upstream: list[ProjectRef] = Field(default_factory=list)
+    downstream: list[ProjectRef] = Field(default_factory=list)
+    knowledge_pool: list[KnowledgePoolEntry] = Field(default_factory=list)
+    refs: Refs = Field(default_factory=Refs)
+
+
+class ProjectCatalog(BaseModel):
+    projects: list[ProjectEntry] = Field(default_factory=list)
+
+
+# ── Initiative (Level 2 — Dynamic) ──────────────────────────────────────────
+
+
+class InitiativeProjectRef(BaseModel):
+    name: str
+    role: str = "peer"
+    branches: list[str] = Field(default_factory=list)
+
+
+class LinkRef(BaseModel):
+    url: str
+    title: str
+    description: str = ""
+
+
+class Decision(BaseModel):
+    date: str
+    decision: str
+    rationale: str = ""
+    by: str = ""
+
+
+class ReferenceDoc(BaseModel):
+    path: str
+    title: str
+
+
+class InitiativeConfig(BaseModel):
+    name: str
+    description: str = ""
+    status: str = "active"
+    created: str = ""
+    projects: list[InitiativeProjectRef] = Field(default_factory=list)
+    links: list[LinkRef] = Field(default_factory=list)
+    decisions: list[Decision] = Field(default_factory=list)
+    reference_docs: list[ReferenceDoc] = Field(default_factory=list)

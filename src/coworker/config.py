@@ -78,3 +78,79 @@ def save_config(config: CoworkerConfig, path: Path) -> None:
     data = config.model_dump(exclude_none=True)
     with open(path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+
+# ── Project Catalog ─────────────────────────────────────────────────────────
+
+from .models import ProjectCatalog
+
+PROJECT_CATALOG_PATH = GLOBAL_DIR / "project.yaml"
+
+
+def load_project_catalog() -> ProjectCatalog:
+    if not PROJECT_CATALOG_PATH.exists():
+        return ProjectCatalog()
+    with open(PROJECT_CATALOG_PATH) as f:
+        data = yaml.safe_load(f) or {}
+    return ProjectCatalog(**data)
+
+
+def save_project_catalog(catalog: ProjectCatalog) -> None:
+    GLOBAL_DIR.mkdir(parents=True, exist_ok=True)
+    data = catalog.model_dump(exclude_none=True)
+    with open(PROJECT_CATALOG_PATH, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+
+# ── Initiative (project-scoped) ──────────────────────────────────────────────
+
+from .models import InitiativeConfig
+
+
+def _initiatives_dir(project_dir: Path | None = None) -> Path:
+    p = Path(project_dir) if project_dir else Path.cwd()
+    return p / ".coworker" / "initiatives"
+
+
+def list_initiatives(project_dir: Path | None = None) -> list[InitiativeConfig]:
+    d = _initiatives_dir(project_dir)
+    results = []
+    if not d.exists():
+        return results
+    for f in sorted(d.glob("*.yaml")):
+        try:
+            with open(f) as fh:
+                data = yaml.safe_load(fh) or {}
+            results.append(InitiativeConfig(**data))
+        except Exception as e:
+            results.append(
+                InitiativeConfig(name=f.stem, description=f"[error: {e}]")
+            )
+    return results
+
+
+def load_initiative(name: str, project_dir: Path | None = None) -> InitiativeConfig | None:
+    d = _initiatives_dir(project_dir)
+    path = d / f"{name}.yaml"
+    if not path.exists():
+        return None
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return InitiativeConfig(**data)
+
+
+def save_initiative(config: InitiativeConfig, project_dir: Path | None = None) -> None:
+    d = _initiatives_dir(project_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    data = config.model_dump(exclude_none=True)
+    path = d / f"{config.name}.yaml"
+    with open(path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+
+def initiative_path(name: str, project_dir: Path | None = None) -> Path:
+    return _initiatives_dir(project_dir) / f"{name}.yaml"
+
+
+def initiative_exists(name: str, project_dir: Path | None = None) -> bool:
+    return initiative_path(name, project_dir).exists()

@@ -460,12 +460,13 @@ def initiative():
 @initiative.command("start")
 @click.argument("name")
 @click.option("--description", "-d", default="")
-@click.option("--project", "-p", "proj_name", default=None, help="Project name from catalog")
+@click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
 @click.option("--role", default="peer", help="Project role: upstream|downstream|peer")
 @click.option("--branch", "-b", "branches", default="main", help="Branches (comma-separated)")
-def initiative_start(name, description, proj_name, role, branches):
+def initiative_start(name, description, proj_dir, role, branches):
     """Quick-start: create, add project, and activate in one step."""
-    mgr = InitiativeManager()
+    pd = Path(proj_dir) if proj_dir else Path.cwd()
+    mgr = InitiativeManager(project_dir=pd)
 
     try:
         mgr.create(name, description)
@@ -475,18 +476,18 @@ def initiative_start(name, description, proj_name, role, branches):
         console.print(f"[red]{e}[/red]")
         return
 
-    if proj_name:
-        config = load_initiative(name)
-        if config and not any(p.name == proj_name for p in config.projects):
+    if proj_dir:
+        config = load_initiative(name, project_dir=pd)
+        if config and not any(p.name == proj_dir for p in config.projects):
             branch_list = [b.strip() for b in branches.split(",") if b.strip()]
             config.projects.append(
                 InitiativeProjectRef(
-                    name=proj_name,
+                    name=proj_dir,
                     role=role,
                     branches=branch_list,
                 )
             )
-            save_initiative(config)
+            save_initiative(config, project_dir=pd)
 
     try:
         actions = mgr.activate(name)
@@ -499,47 +500,31 @@ def initiative_start(name, description, proj_name, role, branches):
 @initiative.command("create")
 @click.argument("name")
 @click.option("--description", "-d", default="")
-def initiative_create(name, description):
+@click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
+def initiative_create(name, description, proj_dir):
     """Create a new initiative."""
-    mgr = InitiativeManager()
+    pd = Path(proj_dir) if proj_dir else Path.cwd()
+    mgr = InitiativeManager(project_dir=pd)
     try:
         mgr.create(name, description)
-        console.print(
-            f"[green]Created initiative '{name}'.[/green]"
-        )
+        console.print(f"[green]Created initiative '{name}' in {pd}[/green]")
     except FileExistsError as e:
         console.print(f"[red]{e}[/red]")
 
 
 @initiative.command("edit")
 @click.argument("name")
+@click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
 @click.option("--description", "-d", default=None)
-@click.option(
-    "--add-project", "add_proj", default=None,
-    help="Add project (name:role:branches)",
-)
-@click.option(
-    "--add-link", "add_link_spec", default=None,
-    help="Add link (Title|URL)",
-)
-@click.option(
-    "--add-decision", "add_decision_spec", default=None,
-    help="Add decision (date|decision|rationale|by)",
-)
-@click.option(
-    "--add-doc", "add_doc_spec", default=None,
-    help="Add reference doc (Title|path)",
-)
-@click.option(
-    "--archive", "do_archive", is_flag=True, default=False,
-    help="Archive the initiative",
-)
-def initiative_edit(
-    name, description, add_proj, add_link_spec, add_decision_spec,
-    add_doc_spec, do_archive,
-):
+@click.option("--add-project", "add_proj", default=None, help="Add project (name:role:branches)")
+@click.option("--add-link", "add_link_spec", default=None, help="Add link (Title|URL)")
+@click.option("--add-decision", "add_decision_spec", default=None, help="Add decision (date|decision|rationale|by)")
+@click.option("--add-doc", "add_doc_spec", default=None, help="Add reference doc (Title|path)")
+@click.option("--archive", "do_archive", is_flag=True, default=False, help="Archive the initiative")
+def initiative_edit(name, proj_dir, description, add_proj, add_link_spec, add_decision_spec, add_doc_spec, do_archive):
     """Edit an existing initiative."""
-    config = load_initiative(name)
+    pd = Path(proj_dir) if proj_dir else Path.cwd()
+    config = load_initiative(name, project_dir=pd)
     if config is None:
         console.print(f"[red]Initiative '{name}' not found.[/red]")
         return
@@ -596,24 +581,24 @@ def initiative_edit(
             )
         )
 
-    save_initiative(config)
+    save_initiative(config, project_dir=pd)
     console.print(f"[green]Updated initiative '{name}'.[/green]")
 
 
 @initiative.command("list")
+@click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
 @click.option("--verbose", "-v", is_flag=True, default=False)
-def initiative_list(verbose):
-    """List all initiatives."""
-    mgr = InitiativeManager()
+def initiative_list(proj_dir, verbose):
+    """List all initiatives for a project."""
+    pd = Path(proj_dir) if proj_dir else Path.cwd()
+    mgr = InitiativeManager(project_dir=pd)
     active = mgr.active_name()
     initiatives = mgr.list_all()
     if not initiatives:
-        console.print(
-            "[dim]No initiatives. Use 'coworker initiative create'.[/dim]"
-        )
+        console.print(f"[dim]No initiatives in {pd}. Use 'coworker initiative create'.[/dim]")
         return
 
-    table = Table(title="Initiatives")
+    table = Table(title=f"Initiatives ({pd})")
     table.add_column("Name", style="cyan")
     table.add_column("Status")
     table.add_column("Active")
@@ -623,11 +608,7 @@ def initiative_list(verbose):
     for i in initiatives:
         mark = "[green]✓[/green]" if i.name == active else ""
         sc = "green" if i.status == "active" else "dim"
-        row = [
-            i.name,
-            f"[{sc}]{i.status}[/{sc}]",
-            mark,
-        ]
+        row = [i.name, f"[{sc}]{i.status}[/{sc}]", mark]
         if verbose:
             proj_str = ", ".join(p.name for p in i.projects) or "-"
             row.append(proj_str)
@@ -638,31 +619,28 @@ def initiative_list(verbose):
 
 @initiative.command("show")
 @click.argument("name")
-def initiative_show(name):
+@click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
+def initiative_show(name, proj_dir):
     """Show full initiative config."""
-    config = load_initiative(name)
+    pd = Path(proj_dir) if proj_dir else Path.cwd()
+    config = load_initiative(name, project_dir=pd)
     if config is None:
         console.print(f"[red]Initiative '{name}' not found.[/red]")
         return
     import yaml
     data = config.model_dump(exclude_none=True)
-    console.print(
-        yaml.dump(data, default_flow_style=False, allow_unicode=True)
-    )
+    console.print(yaml.dump(data, default_flow_style=False, allow_unicode=True))
 
 
 @initiative.command("activate")
 @click.argument("name")
-@click.option(
-    "--project", "project_dir", default=None,
-    help="Project directory for injection",
-)
-def initiative_activate(name, project_dir):
+@click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
+def initiative_activate(name, proj_dir):
     """Activate an initiative (inject context into IDE configs)."""
-    mgr = InitiativeManager()
-    pd = Path(project_dir) if project_dir else None
+    pd = Path(proj_dir) if proj_dir else Path.cwd()
+    mgr = InitiativeManager(project_dir=pd)
     try:
-        actions = mgr.activate(name, project_dir=pd)
+        actions = mgr.activate(name)
         for action in actions:
             console.print(f"  [green]✓[/green] {action}")
     except FileNotFoundError as e:
@@ -670,39 +648,33 @@ def initiative_activate(name, project_dir):
 
 
 @initiative.command("deactivate")
-@click.option(
-    "--project", "project_dir", default=None,
-    help="Project directory",
-)
-def initiative_deactivate(project_dir):
+@click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
+def initiative_deactivate(proj_dir):
     """Deactivate current initiative."""
-    mgr = InitiativeManager()
-    pd = Path(project_dir) if project_dir else None
-    actions = mgr.deactivate(project_dir=pd)
+    pd = Path(proj_dir) if proj_dir else Path.cwd()
+    mgr = InitiativeManager(project_dir=pd)
+    actions = mgr.deactivate()
     for action in actions:
         console.print(f"  [green]✓[/green] {action}")
 
 
 @initiative.command("remove")
 @click.argument("name")
+@click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
 @click.option("--force", is_flag=True, default=False, help="Skip confirmation")
-def initiative_remove(name, force):
+def initiative_remove(name, proj_dir, force):
     """Remove an initiative permanently."""
-    mgr = InitiativeManager()
+    pd = Path(proj_dir) if proj_dir else Path.cwd()
+    mgr = InitiativeManager(project_dir=pd)
     config = mgr.show(name)
     if config is None:
         console.print(f"[red]Initiative '{name}' not found.[/red]")
         return
-
     if not force:
-        ok = click.confirm(
-            f"Remove initiative '{name}' permanently? This cannot be undone.",
-            default=False,
-        )
+        ok = click.confirm(f"Remove initiative '{name}' permanently?", default=False)
         if not ok:
             console.print("[dim]Cancelled.[/dim]")
             return
-
     try:
         mgr.remove(name)
         console.print(f"[green]Removed initiative '{name}'.[/green]")
@@ -710,39 +682,7 @@ def initiative_remove(name, force):
         console.print(f"[red]{e}[/red]")
 
 
-@initiative.command("publish")
-@click.argument("name")
-def initiative_publish(name):
-    """Publish initiative to coworker fork repo."""
-    mgr = InitiativeManager()
-    try:
-        url = mgr.publish(name)
-        console.print("[green]Published![/green]")
-        console.print(f"Shareable URL: [cyan]{url}[/cyan]")
-    except FileNotFoundError as e:
-        console.print(f"[red]{e}[/red]")
-
-
-@initiative.command("import")
-@click.argument("url")
-@click.option(
-    "--on-conflict",
-    type=click.Choice(["overwrite", "reject", "ask"]),
-    default="ask",
-)
-def initiative_import(url, on_conflict):
-    """Import an initiative from a raw GitHub URL."""
-    mgr = InitiativeManager()
-    try:
-        config = mgr.import_from_url(url, on_conflict=on_conflict)
-        console.print(
-            f"[green]Imported initiative '{config.name}'.[/green]"
-        )
-    except FileExistsError as e:
-        console.print(f"[yellow]{e}[/yellow]")
-    except (ConnectionError, ValueError) as e:
-        console.print(f"[red]{e}[/red]")
-
+# ── Analytics & Dashboard (top-level) ────────────────────────────────────
 
 @initiative.command("analytics-db-init")
 def analytics_db_init():
