@@ -23,6 +23,16 @@ skills:
     description: Smart git commit with conventional commits format
     enabled: true
 
+  - name: initiative-create
+    path: skills/initiative-create/SKILL.md
+    description: Create a new cross-project initiative with interview-based scaffolding
+    enabled: true
+
+  - name: initiative-edit
+    path: skills/initiative-edit/SKILL.md
+    description: Edit an existing initiative — add projects, decisions, links, docs
+    enabled: true
+
 # Permissions (Claude Code)
 permissions:
   allow:

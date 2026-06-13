@@ -2,7 +2,9 @@ import sqlite3
 import os
 from pathlib import Path
 
-DB_PATH = Path(os.environ.get("COWORKER_ANALYTICS_DB", Path.home() / ".coworker" / "analytics" / "analytics.db"))
+def _default_db_path() -> Path:
+    return Path(os.environ.get("COWORKER_ANALYTICS_DB",
+               str(Path.home() / ".coworker" / "analytics" / "analytics.db")))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -118,7 +120,7 @@ CREATE TABLE IF NOT EXISTS session_summaries (
 
 
 def get_db(db_path: str | Path | None = None) -> sqlite3.Connection:
-    path = Path(db_path) if db_path else DB_PATH
+    path = Path(db_path) if db_path else _default_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
