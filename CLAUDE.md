@@ -10,18 +10,16 @@
 - **Rapid execution.** Once human confirms, move fast.
 - **Self-healing.** Log every correction. Patterns become rules.
 
-## Workflow — 8-Stage Pipeline
-For any feature work, follow this pipeline in order:
-1. `p2f` — PRD → Features (update FEATURE.md)
-2. `f2d` — Features → Design (update DESIGN.md)
-3. `d2pl` — Design → Plan (create plan file with waves + MAC)
-4. `pl2c` — Plan → Code (orchestrator + subagent model)
-5. `c2f` — Code → Features (mark implemented features COMPLETE)
-6. `c2d` — Code → Design (sync APIs/data model back to DESIGN.md)
-7. `verify` — MAC check in fresh session
-8. `review-checkpoint` — find reviewer, draft message
+## Workflow — 5-Stage Pipeline
+For any coding task, follow this pipeline in order:
+1. `understand` — Clarify requirements with user, confirm understanding
+2. `decompose` — Break into parallel tasks grouped in waves, confirm plan
+3. `execute` — Implement wave by wave via parallel subagents, one commit per task
+4. `verify` — Run tests, lint, guardrails in fresh session, fix failures
+5. `pr` — Create pull request with summary, request review
 
-For changes < 100 lines: use `quick-task` (skip pipeline).
+No documents required (no PRD, FEATURE.md, DESIGN.md, or plan files).
+All understanding and task plans live in the conversation.
 
 ## Guardrails — OWASP & Standard Security
 
@@ -71,10 +69,10 @@ For changes < 100 lines: use `quick-task` (skip pipeline).
 - Commit: Conventional Commits (enforced by pre-commit hook)
 - PR: every PR must reference a GitHub Issue number
 
-## Doc-Driven Development
+## Issue-Driven Development
 - Detect bug signals → create GitHub Issue first, then fix
-- Never skip the discussion/design step for non-trivial changes
 - Every code change should have a corresponding issue or PR description
+- All design discussion happens in the conversation, not in documents
 
 ## Self-Healing
 - On every user correction, log a trace via `self-healing-trace`

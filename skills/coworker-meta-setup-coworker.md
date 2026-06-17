@@ -51,7 +51,7 @@ Run the 5-step interactive setup to initialize the AI coworker for a new project
 → Install skills to appropriate location for each detected IDE:
    - Claude Code: .claude/commands/
    - Cursor: .cursor/rules/
-   - OpenCode: .opencode/instructions/
+   - OpenCode: ~/.config/opencode/skills/skill-factory/personal-skills/
    - Gemini CLI: .gemini/
 ```
 

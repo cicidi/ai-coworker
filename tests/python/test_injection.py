@@ -109,6 +109,35 @@ class TestStaticBlock:
         assert "# Title" in result
         assert "block" in result
 
+    def test_static_block_has_docs_directory_structure(self):
+        catalog = ProjectCatalog()
+        block = _build_static_block(catalog)
+        assert "## Docs Directory Structure" in block
+        assert "docs/" in block
+        assert "docs/architecture/" in block
+        assert "docs/spec/" in block
+        assert "docs/planning/" in block
+
+    def test_static_block_has_coworker_skills_guidance(self):
+        catalog = ProjectCatalog()
+        block = _build_static_block(catalog)
+        assert "## Coworker Skills" in block
+        assert "coworker-dev-*" in block
+        assert "coworker-do-*" in block
+        assert "coworker-debug-*" in block
+        assert "Prefer coworker skills" in block
+
+    def test_static_block_has_karpathy_guidelines(self):
+        catalog = ProjectCatalog()
+        block = _build_static_block(catalog)
+        assert "## Additional Behavioral Guidelines" in block
+        assert "andrej-karpathy-skills" in block
+        assert "Think Before Coding" in block
+        assert "Simplicity First" in block
+        assert "Surgical Changes" in block
+        assert "Goal-Driven Execution" in block
+        assert "fewer unnecessary diffs" in block
+
 
 class TestInitiativeBlock:
     def test_minimal_initiative(self):

@@ -9,7 +9,7 @@ from rich.table import Table
 from rich import print as rprint
 
 from .config import (
-    GLOBAL_DIR, GLOBAL_CONFIG, PROJECT_CONFIG_NAME, INITIATIVES_DIR,
+    GLOBAL_DIR, GLOBAL_CONFIG, PROJECT_CONFIG_NAME,
     load_global_config, load_project_config, merged_config, save_config,
     load_project_catalog, save_project_catalog,
     load_initiative, save_initiative, list_initiatives, initiative_exists,

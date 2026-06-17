@@ -3,18 +3,6 @@ scope: global
 
 # MCP Servers — shared across Claude Code, Gemini, OpenCode
 mcp: []
-  # Example:
-  # - name: filesystem
-  #   command: npx
-  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/cicidi"]
-  #   enabled: true
-  #
-  # - name: github
-  #   command: npx
-  #   args: ["-y", "@modelcontextprotocol/server-github"]
-  #   env:
-  #     GITHUB_PERSONAL_ACCESS_TOKEN: "your-token"
-  #   enabled: true
 
 # Skills
 skills:
