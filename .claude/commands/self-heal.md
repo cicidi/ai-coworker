@@ -1,63 +1,88 @@
 ---
 name: self-heal
-description: Log a correction trace when AI makes a mistake. Stores in YAML for pattern analysis.
-aliases: [trace, log-correction]
+description: Log correction traces to project's .self-healing/ directory. Auto-detects missing hook.
+aliases: [trace, log-correction, heal]
 ---
 
-# Self-Healing Trace
+# Self-Heal
 
-Triggered automatically when user corrects AI behavior, or manually via this skill.
+Log every user correction for pattern analysis.
 
-## Trigger Signals (auto-detected via UserPromptSubmit hook)
-Keywords: "no", "don't", "stop", "wrong", "not like that", "never do", "I told you"
+## Trigger
 
-## Trace Format
-
-Stored in `~/.claude/self-healing/traces/YYYY-MM-DD.yaml`
-
-```yaml
-- id: {uuid}
-  timestamp: {ISO8601}
-  trigger: user_correction
-  context: "{what AI did}"
-  correction: "{what user said}"
-  category: {code-conventions|workflow|communication|security|architecture}
-  project: {project from .local_config.yaml}
-  frequency: 1
-```
+Auto-detected when user corrects AI. Keywords: "no", "don't", "stop", "wrong", "not like that", "never do", "I told you".
 
 ## Process
 
-### 1. Capture
+### 1. Check Hook
+
+```bash
+ls .claude/hooks/on-self-heal.sh 2>/dev/null
 ```
-→ On correction signal detected:
-→ Note: what was AI doing? What did user say?
-→ Infer the rule: "AI should never... / AI should always..."
+
+If hook exists → skip to step 2.
+
+If hook NOT found:
+```
+→ "Self-healing hook not installed. Install it? (y/n)"
+→ If yes: create .claude/hooks/on-self-heal.sh
+→ Register in .claude/settings.json:
+  {
+    "hooks": {
+      "UserPromptSubmit": [
+        {"matcher": "", "command": ".claude/hooks/on-self-heal.sh"}
+      ]
+    }
+  }
 ```
 
 ### 2. Write Trace
-```python
-# Append to ~/.claude/self-healing/traces/{date}.yaml
-trace = {
-    "id": uuid4(),
-    "timestamp": now(),
-    "context": "AI used java.util.Map instead of import",
-    "correction": "Use imports, not fully qualified names",
-    "category": "code-conventions",
-    "frequency": 1
-}
+
+Store in project root: `.self-healing/traces/{YYYY-MM-DD}.yaml`
+
+```yaml
+- id: {uuid4}
+  timestamp: {ISO8601}
+  context: "what AI did wrong"
+  correction: "what user said"
+  category: code-conventions|workflow|security|architecture|tool-use
 ```
 
 ### 3. Acknowledge
+
 ```
-"Got it — logged correction: '{rule}'. 
-I'll avoid this in future. (Run self-healing-analyze to find patterns)"
+"Logged correction: '{rule}'. Run self-analyze later to find patterns."
+```
+
+## Hook Script
+
+```bash
+#!/usr/bin/env bash
+# .claude/hooks/on-self-heal.sh
+# Detects user corrections and writes trace YAML
+
+input=$(cat)
+# Check for correction keywords
+if echo "$input" | grep -qiE "\b(no|don'?t|stop|wrong|not like that|never|i told you)\b"; then
+  DIR=".self-healing/traces"
+  mkdir -p "$DIR"
+  FILE="$DIR/$(date +%Y-%m-%d).yaml"
+  ID=$(uuidgen 2>/dev/null || echo "$(date +%s)-$RANDOM")
+  cat >> "$FILE" <<YAML
+- id: $ID
+  timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+  context: ""
+  correction: "$(echo "$input" | tr '\n' ' ' | sed 's/"/\\"/g' | cut -c1-200)"
+  category: workflow
+YAML
+  echo " "  # hook must output something
+fi
 ```
 
 ## Categories
-- `code-conventions` — style, formatting, imports, naming
-- `workflow` — pipeline steps, commit messages, PR process  
-- `communication` — message format, tone, channel choice
-- `security` — OWASP violations, secret handling
-- `architecture` — design patterns, structure decisions
-- `tool-use` — wrong tool, wrong MCP, wrong command
+
+- `code-conventions` — style, naming, imports
+- `workflow` — pipeline steps, commits, PRs
+- `security` — secrets, injection
+- `architecture` — design, patterns
+- `tool-use` — wrong tool, wrong command
