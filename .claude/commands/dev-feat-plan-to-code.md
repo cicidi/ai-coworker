@@ -1,5 +1,5 @@
 ---
-name: plan-to-code
+name: dev-feat-plan-to-code
 description: Execute a plan file via orchestrator + subagent model. One task = one subagent = one commit.
 aliases: [pl2c, execute-plan]
 ---

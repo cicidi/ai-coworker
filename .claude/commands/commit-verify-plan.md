@@ -1,5 +1,5 @@
 ---
-name: verify-plan
+name: commit-verify-plan
 description: Post-execution MAC verification in a fresh session — confirms feature works before PR
 aliases: [verify, mac-check, qp]
 ---

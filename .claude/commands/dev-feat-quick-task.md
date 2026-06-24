@@ -1,5 +1,5 @@
 ---
-name: quick-task
+name: dev-feat-quick-task
 description: Small change (<100 lines) without full PRD/Design/Plan pipeline. Bug fixes, config tweaks.
 aliases: [quick, hotfix]
 ---

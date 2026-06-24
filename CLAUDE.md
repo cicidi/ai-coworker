@@ -12,11 +12,11 @@
 
 ## Workflow — 5-Stage Pipeline
 For any coding task, follow this pipeline in order:
-1. `understand` — Clarify requirements with user, confirm understanding
-2. `decompose` — Break into parallel tasks grouped in waves, confirm plan
-3. `execute` — Implement wave by wave via parallel subagents, one commit per task
-4. `verify` — Run tests, lint, guardrails in fresh session, fix failures
-5. `pr` — Create pull request with summary, request review
+1. `flow-understand` — Clarify requirements with user, confirm understanding
+2. `flow-split` — Break into parallel tasks grouped in waves, confirm plan
+3. `flow-build` — Implement wave by wave via parallel subagents, one commit per task
+4. `flow-check` — Run tests, lint, guardrails in fresh session, fix failures
+5. `flow-ship` — Create pull request with summary, request review
 
 No documents required (no PRD, FEATURE.md, DESIGN.md, or plan files).
 All understanding and task plans live in the conversation.
@@ -75,8 +75,8 @@ All understanding and task plans live in the conversation.
 - All design discussion happens in the conversation, not in documents
 
 ## Self-Healing
-- On every user correction, log a trace via `self-healing-trace`
-- Run `self-healing-analyze` periodically to find patterns
+- On every user correction, log a trace via `self-heal`
+- Run `self-analyze` periodically to find patterns
 - Generated skills go through PR review before merging
 
 ## Code Quality
