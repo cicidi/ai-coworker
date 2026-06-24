@@ -1,31 +1,66 @@
 ---
 name: self-analyze
-description: Scan .self-healing/traces/, find patterns, inject summary into CLAUDE.md
-license: MIT
-compatibility: claude-code,opencode,gemini
-metadata:
-  triggers:
-    - self-analyze
-    - analyze traces
-    - find patterns
-    - self improve
-  when_to_use: Periodically to find recurring AI mistakes and generate rules
-  audience: ai-coworker
+description: Scan project's .self-healing/traces/, find patterns, inject summary into CLAUDE.md
+aliases: [analyze-traces, analyze, self-improve]
 ---
 
-# self-analyze
+# Self-Analyze
 
-Scan project correction traces, find patterns, inject rules into CLAUDE.md.
+Read project correction traces, find patterns, generate rules.
 
-## Usage
+## Process
 
-```bash
-coworker self-analyze
+### 1. Load Traces
+
+```
+→ Read all .self-healing/traces/*.yaml
+→ Parse correction entries
+→ Group by category
+→ Count frequency per normalized correction
 ```
 
-## What it does
+### 2. Find Patterns
 
-1. Reads all `.self-healing/traces/*.yaml`
-2. Groups corrections by pattern, counts frequency
-3. Generates summary in `<!-- SELF-ANALYZE -->` block
-4. Injects into project's CLAUDE.md
+A pattern = same correction occurring 2+ times:
+
+| Category | Correction | Count |
+|----------|-----------|-------|
+| code-conventions | never use git add . | 3 |
+| workflow | always confirm before deleting | 2 |
+
+### 3. Generate Summary
+
+```markdown
+<!-- SELF-ANALYZE START -->
+## Self-Healing Insights ({date})
+
+**Analyzed:** {N} traces over {M} days
+
+### Patterns Found
+
+- **{correction}** ({count}×) — {context}
+
+### Rules Added
+- {rule} → {file}
+
+<!-- SELF-ANALYZE END -->
+```
+
+### 4. Inject into CLAUDE.md
+
+```
+→ Read project CLAUDE.md
+→ If SELF-ANALYZE block exists → replace
+→ If not → append at end
+→ Write CLAUDE.md
+```
+
+### 5. Report
+
+```
+Self-analyze complete:
+  {N} traces analyzed
+  {M} patterns found
+  {K} rules injected into CLAUDE.md
+  Summary in <!-- SELF-ANALYZE --> block
+```

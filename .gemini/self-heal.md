@@ -1,6 +1,6 @@
 ---
 name: self-heal
-description: Log correction traces to project's .self-healing/ directory. Auto-detects missing hook.
+description: Log user corrections to project's .self-healing/traces/. Auto-installs global hooks for Claude Code and OpenCode.
 aliases: [trace, log-correction, heal]
 ---
 
@@ -14,55 +14,80 @@ Auto-detected when user corrects AI. Keywords: "no", "don't", "stop", "wrong", "
 
 ## Process
 
-### 1. Check Hook
+### 1. Check Hooks
+
+Check both IDEs:
 
 ```bash
-ls .claude/hooks/on-self-heal.sh 2>/dev/null
+ls ~/.claude/hooks/on-self-heal.sh 2>/dev/null   # Claude Code
 ```
 
-If hook exists → skip to step 2.
-
-If hook NOT found:
+```bash
+ls ~/.config/opencode/hooks/on-self-heal.sh 2>/dev/null  # OpenCode
 ```
-→ "Self-healing hook not installed. Install it? (y/n)"
-→ If yes: create .claude/hooks/on-self-heal.sh
-→ Register in .claude/settings.json:
-  {
-    "hooks": {
-      "UserPromptSubmit": [
-        {"matcher": "", "command": ".claude/hooks/on-self-heal.sh"}
-      ]
-    }
+
+If missing for any detected IDE → offer to install:
+
+```
+→ "Self-heal hook missing for {ide}. Install global hook? (y/n)"
+→ If yes: create hook script + register in settings
+```
+
+### 2. Hook Placement
+
+Global hooks — work for ALL projects:
+
+```
+~/.claude/hooks/on-self-heal.sh            # Claude Code
+~/.config/opencode/hooks/on-self-heal.sh   # OpenCode
+```
+
+Register in settings:
+
+```json
+// ~/.claude/settings.json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"matcher": "", "command": "bash ~/.claude/hooks/on-self-heal.sh"}
+    ]
   }
+}
+
+// ~/.config/opencode/config.json  
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"command": "bash ~/.config/opencode/hooks/on-self-heal.sh"}
+    ]
+  }
+}
 ```
 
-### 2. Write Trace
+### 3. Write Trace
 
-Store in project root: `.self-healing/traces/{YYYY-MM-DD}.yaml`
+Hook writes to current project: `{project}/.self-healing/traces/{YYYY-MM-DD}.yaml`
 
 ```yaml
-- id: {uuid4}
+- id: {uuid}
   timestamp: {ISO8601}
   context: "what AI did wrong"
   correction: "what user said"
   category: code-conventions|workflow|security|architecture|tool-use
 ```
 
-### 3. Acknowledge
+### 4. Acknowledge
 
 ```
-"Logged correction: '{rule}'. Run self-analyze later to find patterns."
+"Logged correction. Run self-analyze later to find patterns."
 ```
 
 ## Hook Script
 
 ```bash
 #!/usr/bin/env bash
-# .claude/hooks/on-self-heal.sh
-# Detects user corrections and writes trace YAML
-
+# ~/.claude/hooks/on-self-heal.sh (also at ~/.config/opencode/hooks/)
 input=$(cat)
-# Check for correction keywords
 if echo "$input" | grep -qiE "\b(no|don'?t|stop|wrong|not like that|never|i told you)\b"; then
   DIR=".self-healing/traces"
   mkdir -p "$DIR"
@@ -72,11 +97,11 @@ if echo "$input" | grep -qiE "\b(no|don'?t|stop|wrong|not like that|never|i told
 - id: $ID
   timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
   context: ""
-  correction: "$(echo "$input" | tr '\n' ' ' | sed 's/"/\\"/g' | cut -c1-200)"
+  correction: "$(echo "$input" | tr '\n' ' ' | sed 's/"/\\"/g' | cut -c1-300)"
   category: workflow
 YAML
-  echo " "  # hook must output something
 fi
+echo " "
 ```
 
 ## Categories
