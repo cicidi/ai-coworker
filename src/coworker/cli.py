@@ -734,6 +734,21 @@ def analytics_import():
     import_all()
 
 
+@analytics.command("daemon")
+def analytics_daemon():
+    """Run auto-import daemon — polls every 30 minutes for new sessions."""
+    from .analytics.auto_import import run_daemon
+    run_daemon()
+
+
+@analytics.command("once")
+def analytics_once():
+    """Import new sessions once (no daemon)."""
+    from .analytics.auto_import import run_once
+    stats = run_once(verbose=True)
+    console.print(f"[green]Imported:[/green] claude={stats['claude_imported']} opencode={stats['opencode_imported']} skipped={stats['skipped']}")
+
+
 @analytics.command("dashboard")
 @click.option("--port", default=8080, help="Port to listen on")
 @click.option("--db", default=None, help="Path to analytics database")
