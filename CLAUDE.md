@@ -10,17 +10,6 @@
 - **Rapid execution.** Once human confirms, move fast.
 - **Self-healing.** Log every correction. Patterns become rules.
 
-## Workflow — 5-Stage Pipeline
-For any coding task, follow this pipeline in order:
-1. `flow-understand` — Clarify requirements with user, confirm understanding
-2. `flow-split` — Break into parallel tasks grouped in waves, confirm plan
-3. `flow-build` — Implement wave by wave via parallel subagents, one commit per task
-4. `flow-check` — Run tests, lint, guardrails in fresh session, fix failures
-5. `flow-ship` — Create pull request with summary, request review
-
-No documents required (no PRD, FEATURE.md, DESIGN.md, or plan files).
-All understanding and task plans live in the conversation.
-
 ## Guardrails — OWASP & Standard Security
 
 ### Git & Code
