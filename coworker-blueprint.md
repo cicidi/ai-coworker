@@ -2,9 +2,9 @@
 
 > **Purpose:** Complete specification of the AI Coworker context management system. Give this to any LLM to recreate it.
 
-> **What is AI Coworker?** A Python CLI tool that keeps your AI coding assistants aware of your projects, initiatives, and available skills. It auto-scans projects, injects managed context blocks into IDE configs, syncs skills from [skill-factory](https://github.com/cicidi/skill-factory), and tracks analytics.
+> **What is AI Coworker?** A Python CLI tool that keeps your AI coding assistants aware of your projects, initiatives, and available skills. It auto-scans projects, injects managed context blocks into IDE configs, syncs skills from [skill-factory](https://github.com/cicidi/skill-factory), and tracks session analytics. It's the data foundation for building an autonomous coding agent.
 
-> **What it is NOT:** A development workflow tool. Skills for coding, testing, reviewing, debugging — those come from skill-factory, not ai-coworker.
+> **What it is NOT:** A development workflow tool. Skills for coding, testing, reviewing, debugging — those come from skill-factory, not ai-coworker. AI Coworker provides the context, memory, and data layer that makes those skills effective.
 
 ---
 
@@ -45,6 +45,12 @@ You're working on initiative "skill-migration" across 3 projects. Your AI knows 
 Team skills live in skill-factory, personal tweaks in random folders, nothing is synced.
 
 **Solution:** `coworker sync` reads `coworker.yaml` → copies configured skills to all installed IDEs.
+
+### Problem 4: No memory across sessions
+
+Every AI session starts from zero. Past learnings, effective workflows, and mistakes are lost.
+
+**Solution:** Analytics pipeline imports Claude Code and OpenCode session data into SQLite. Knowledge extraction identifies repeatable patterns. This data powers a future autonomous coding agent that remembers what works.
 
 ---
 
@@ -330,9 +336,9 @@ skills:
 
 ---
 
-## 8. Analytics
+## 8. Analytics & Memory Management
 
-Tracks AI session activity for insights and knowledge extraction.
+Tracks AI session activity across Claude Code and OpenCode. Records skill usage, tool calls, token costs, and extracts reusable knowledge. This data is the foundation for building an autonomous coding agent.
 
 ### Database schema
 
@@ -375,6 +381,40 @@ CREATE TABLE knowledge (
     evidence TEXT
 );
 ```
+
+### Data pipeline
+
+```
+Claude Code sessions  ──→  JSONL files  ──→  SQLite
+OpenCode sessions     ──→  opencode.db  ──→  SQLite
+                                              │
+                                              ├── session_summaries
+                                              ├── knowledge cards
+                                              └── dashboard
+                                              │
+                                              ▼
+                                         Obsidian vault
+                                      (searchable memory)
+```
+
+### Commands
+
+```
+coworker analytics create-db   → Initialize the SQLite database
+coworker analytics import      → Import OpenCode JSONL sessions
+coworker analytics dashboard   → Start web UI at http://localhost:8080
+```
+
+### Road to Autonomy
+
+The analytics data enables:
+
+1. **Skill effectiveness** — Which skills are used most? Which fail often?
+2. **Pattern detection** — What workflows repeat across sessions?
+3. **Knowledge extraction** — What got learned and should persist?
+4. **Auto-coding agent** — Given session history + skill catalog + project context,
+   the agent can autonomously pick the right skill, apply the right guardrails,
+   and learn from past mistakes.
 
 ### Commands
 

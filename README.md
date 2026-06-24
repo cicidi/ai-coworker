@@ -1,8 +1,10 @@
 # AI Coworker
 
-**Project context manager for AI coding assistants.**
+**Project context and memory manager for AI coding assistants.**
 
 AI Coworker keeps your IDE (Claude Code, OpenCode, Gemini, Cursor) aware of your project structure, active initiatives, and available skills. It auto-scans projects, injects context into your AI's config, and connects to [skill-factory](https://github.com/cicidi/skill-factory) for skill lifecycle management.
+
+It also analyzes your AI sessions — tracking which skills get used, how often, and what patterns emerge — building the foundation for an autonomous coding agent.
 
 ## What It Does
 
@@ -11,7 +13,9 @@ AI Coworker keeps your IDE (Claude Code, OpenCode, Gemini, Cursor) aware of your
 - **Manage initiatives** — cross-project work with decisions, links, project scope
 - **Track projects** — catalog with upstream/downstream relationships, knowledge pools
 - **Sync skills** from config to all installed IDEs
-- **Analytics** — session tracking with SQLite DB and web dashboard
+- **Analyze sessions** — track skill usage, tool calls, token costs across sessions
+- **Memory management** — extract reusable knowledge from session history into SQLite + Obsidian
+- **Road to autonomy** — data foundation for building an auto-coding agent
 
 ## What It Doesn't Do
 
