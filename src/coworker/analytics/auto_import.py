@@ -13,6 +13,27 @@ CLAUDE_PROJECTS = HOME / ".claude" / "projects"
 POLL_INTERVAL = 1800
 
 
+def _get_skills(jsonl_file: Path) -> set:
+    """Extract unique skill names from a Claude Code JSONL session."""
+    skills = set()
+    if not jsonl_file.exists():
+        return skills
+    for line in jsonl_file.read_text().strip().split("\n"):
+        try:
+            obj = json.loads(line)
+            msg = obj.get("message", {})
+            if isinstance(msg, dict):
+                content = msg.get("content", []) if isinstance(msg.get("content"), list) else []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Skill":
+                        sname = block.get("input", {}).get("name", "")
+                        if sname:
+                            skills.add(sname)
+        except json.JSONDecodeError:
+            continue
+    return skills
+
+
 def _count_jsonl_lines(path: Path) -> int:
     if not path.exists():
         return 0
@@ -40,7 +61,7 @@ def _count_jsonl_skill_calls(path: Path) -> set:
 
 
 def import_claude_jsonl(jsonl_file: Path, conn):
-    """Store session metadata + stats from Claude Code JSONL."""
+    """Store session metadata + stats + file ops from Claude Code JSONL."""
     sid = jsonl_file.stem
     lines = jsonl_file.read_text().strip().split("\n")
     msg_count = len(lines)
@@ -48,18 +69,68 @@ def import_claude_jsonl(jsonl_file: Path, conn):
     created = ""
     model = ""
     cwd = ""
-    for line in lines:
+    active_skill = None
+    file_count = 0
+    read_count = 0
+    write_count = 0
+
+    for seq, line in enumerate(lines):
         try:
             obj = json.loads(line)
-            if obj.get("type") == "assistant" and not created:
-                created = obj.get("timestamp", "")
-                mi = obj.get("message", {})
-                if isinstance(mi, dict):
-                    model = mi.get("model", "")
-            if obj.get("cwd") and not cwd:
-                cwd = obj["cwd"]
         except json.JSONDecodeError:
             continue
+
+        if obj.get("type") == "assistant" and not created:
+            created = obj.get("timestamp", "")
+            mi = obj.get("message", {})
+            if isinstance(mi, dict):
+                model = mi.get("model", "")
+        if obj.get("cwd") and not cwd:
+            cwd = obj["cwd"]
+
+        msg = obj.get("message", {})
+        ts = obj.get("timestamp", "")
+
+        if not isinstance(msg, dict):
+            continue
+
+        content = msg.get("content", []) if isinstance(msg.get("content"), list) else []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type", "")
+            tname = block.get("name", "")
+
+            if btype == "tool_use" and tname == "Skill":
+                active_skill = block.get("input", {}).get("name", "") or None
+                sname = active_skill
+                if sname:
+                    conn.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (sname,))
+                    conn.execute("UPDATE skills SET total_calls = total_calls + 1 WHERE name = ?", (sname,))
+
+            elif btype == "tool_use" and tname in ("Read", "Write", "Edit", "Glob", "Bash"):
+                file_count += 1
+                args = block.get("input", {})
+                fpath = args.get("file_path") or args.get("path") or args.get("filePath") or ""
+                op = tname.lower()
+
+                if tname in ("Read", "Glob"):
+                    read_count += 1
+                elif tname in ("Write", "Edit"):
+                    write_count += 1
+
+                if fpath:
+                    file_type = Path(fpath).suffix.lstrip(".") or None
+                    conn.execute(
+                        """INSERT OR IGNORE INTO file_ops (session_id, call_id, op, path, file_type, project, skill_name, seq, ts)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (sid, block.get("id", f"{sid}-{seq}"), op, fpath, file_type,
+                         jsonl_file.parent.name, active_skill, seq, ts),
+                    )
+
+            elif btype == "tool_use" and tname not in ("Skill", "Read", "Write", "Edit", "Glob", "Bash"):
+                # Non-skill, non-file tool — end skill context if one was active
+                active_skill = None
 
     conn.execute(
         """INSERT OR REPLACE INTO sessions (id, ide, project, cwd, model, created_at)
@@ -67,20 +138,11 @@ def import_claude_jsonl(jsonl_file: Path, conn):
         (sid, jsonl_file.parent.name, cwd, model, created or ""),
     )
 
-    # Skill tracking
-    skills = _count_jsonl_skill_calls(jsonl_file)
-    for sname in skills:
-        conn.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (sname,))
-        conn.execute(
-            "UPDATE skills SET total_calls = total_calls + 1 WHERE name = ?", (sname,)
-        )
-
-    # Stats
     conn.execute(
         """INSERT OR REPLACE INTO session_stats
-           (session_id, message_count, updated_at)
-           VALUES (?, ?, ?)""",
-        (sid, msg_count, datetime.now().isoformat()),
+           (session_id, message_count, tool_count, skill_count, read_count, write_count, bash_count, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (sid, msg_count, file_count, len(_get_skills(jsonl_file)), read_count, write_count, 0, datetime.now().isoformat()),
     )
     conn.commit()
 
