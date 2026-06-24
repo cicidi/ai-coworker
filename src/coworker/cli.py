@@ -1,5 +1,4 @@
 from __future__ import annotations
-import subprocess
 import sys
 from pathlib import Path
 
@@ -233,86 +232,6 @@ Describe when Claude should invoke this skill.
     console.print(f"[green]Created:[/green] {skill_file}")
     console.print(f"[dim]Add to coworker.yaml:[/dim]")
     console.print(f"  skills:\n    - name: {name}\n      path: skills/{name}")
-
-
-@main.command()
-@click.argument("package")
-def install(package):
-    """Install an MCP server package (npm/pip)."""
-    console.print(f"Installing [cyan]{package}[/cyan]...")
-    result = subprocess.run(
-        ["npm", "install", "-g", package],
-        capture_output=True, text=True
-    )
-    if result.returncode == 0:
-        console.print(f"[green]✓[/green] Installed {package}")
-    else:
-        console.print(f"[red]✗[/red] {result.stderr}")
-        sys.exit(1)
-
-
-@main.command("import-mcp")
-@click.argument("mcp_file", default=".mcp.json", required=False)
-@click.option("--dry-run", is_flag=True, default=False, help="Preview without writing")
-def import_mcp(mcp_file, dry_run):
-    """Import MCP servers from a .mcp.json file into coworker.yaml."""
-    import json
-
-    mcp_path = Path(mcp_file)
-    if not mcp_path.is_absolute():
-        mcp_path = Path.cwd() / mcp_path
-
-    if not mcp_path.exists():
-        console.print(f"[red]Not found:[/red] {mcp_path}")
-        sys.exit(1)
-
-    with open(mcp_path) as f:
-        data = json.load(f)
-
-    servers_raw = data.get("mcpServers", {})
-    if not servers_raw:
-        console.print("[yellow]No mcpServers found in file.[/yellow]")
-        return
-
-    from .models import McpServer
-    new_servers = []
-    for name, cfg in servers_raw.items():
-        new_servers.append(McpServer(
-            name=name,
-            command=cfg.get("command", "npx"),
-            args=cfg.get("args", []),
-            env=cfg.get("env", {}),
-            enabled=True,
-        ))
-
-    console.print(f"Found [cyan]{len(new_servers)}[/cyan] MCP server(s) in {mcp_path.name}:")
-    for s in new_servers:
-        console.print(f"  [dim]+[/dim] {s.name} ({s.command} {' '.join(s.args[:2])}...)")
-
-    if dry_run:
-        console.print("\n[yellow]Dry run — no changes written.[/yellow]")
-        return
-
-    # Merge into global coworker.yaml
-    if not GLOBAL_CONFIG.exists():
-        console.print(f"[red]Global config not found:[/red] {GLOBAL_CONFIG}")
-        console.print("Run [cyan]coworker init --global[/cyan] first.")
-        sys.exit(1)
-
-    config = load_global_config()
-    existing_names = {s.name for s in config.mcp}
-    added = 0
-    for server in new_servers:
-        if server.name not in existing_names:
-            config.mcp.append(server)
-            added += 1
-        else:
-            # overwrite existing
-            config.mcp = [server if s.name == server.name else s for s in config.mcp]
-
-    save_config(config, GLOBAL_CONFIG)
-    console.print(f"\n[green]✓[/green] Added/updated {len(new_servers)} server(s) in {GLOBAL_CONFIG}")
-    console.print("Run [cyan]coworker sync[/cyan] to apply to all tools.")
 
 
 # ── Project Catalog ───────────────────────────────────────────────────────
