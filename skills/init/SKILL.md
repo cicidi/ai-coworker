@@ -1,6 +1,6 @@
 ---
 name: init
-description: Initialize the AI coworker for a new project — 5-step interactive setup
+description: Auto-scan project and generate config — detects language, dependencies, IDEs
 license: MIT
 compatibility: claude-code,opencode,gemini
 metadata:
@@ -15,7 +15,7 @@ metadata:
 
 # init
 
-Initialize the AI coworker for a new project. Interactive 5-step setup.
+Auto-scan project and generate configuration.
 
 ## Usage
 
@@ -23,9 +23,11 @@ Initialize the AI coworker for a new project. Interactive 5-step setup.
 coworker init
 ```
 
-Interactive prompts will guide you through:
-1. Scan project directory
-2. Generate CLAUDE.md with project-specific rules
-3. Detect identity (username, team)
-4. Create local config (coworker.yaml)
-5. Install hooks and sync to IDEs
+CLI will:
+1. Scan the project for language, framework, dependencies
+2. Detect installed IDEs
+3. Show findings for confirmation
+4. Generate `coworker.yaml`
+5. Generate/update `CLAUDE.md` with Project Context
+
+After init, run `coworker sync` to apply.

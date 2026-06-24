@@ -1,58 +1,24 @@
 ---
 name: self-init
-description: 5-step interactive setup — scan project, generate CLAUDE.md, detect identity, create local config, install hooks
-aliases: [setup]
+description: Auto-scan project, confirm findings, generate CLAUDE.md and coworker.yaml
+aliases: [setup, init]
 ---
 
-# Setup Coworker
+# Init
 
-Run the 5-step interactive setup to initialize the AI coworker for a new project.
+Run `coworker init` to auto-scan the project and generate configs.
 
-## Steps
+## What it does
 
-### Step 1 — Identity Detection
-```
-→ Run `whoami` to get system username
-→ Get project name from current folder name
-→ Confirm: "Detected identity: {user} working on {project}. Correct?"
-```
+1. Scans package.json/pyproject.toml/go.mod/Cargo.toml for language & deps
+2. Detects installed IDEs (Claude Code, OpenCode, Gemini, Cursor)
+3. Shows findings to user for confirmation
+4. Generates coworker.yaml with project settings
+5. Generates/updates CLAUDE.md with Project Context section
 
-### Step 2 — Repo Check
-```
-→ Check if ai-coworker repo is cloned locally
-→ If no: guide through: git clone + upstream remote setup
-→ If yes: validate path exists and upstream is set
-```
+## Rules
 
-### Step 3 — Role Selection
-```
-→ Ask: "What's your role? (backend / frontend / architect / pm — multi-select)"
-→ Copy team-common + role-specific skills to IDE config directory
-```
-
-### Step 4 — IDE Detection
-```
-→ Auto-detect: Claude Code, Cursor, OpenCode, Gemini CLI
-→ If not found: "Which IDE are you using?"
-→ Install skills to appropriate location for each detected IDE:
-   - Claude Code: .claude/commands/
-   - Cursor: .cursor/rules/
-   - OpenCode: .opencode/instructions/
-   - Gemini CLI: .gemini/
-```
-
-### Step 5 — MCP Tool Setup
-```
-→ For each integration (GitHub, Slack, Telegram, Discord, Google Drive):
-  → Check if already installed
-  → If not: "Install {tool}? (y/n)"
-  → Auto-install via npm/uvx if possible
-  → Prompt for required env vars (tokens) if needed
-→ Verify: "Setup complete! ✓"
-```
-
-## Output
-- `.local_config.yaml` created in project root (gitignored)
-- Skills installed to all detected IDEs
-- MCP servers configured in `.mcp.json`
-- CLAUDE.md symlinked for Cursor/OpenCode/Gemini
+- Run `coworker init` — it handles everything automatically
+- User only needs to confirm the scan results
+- If CLAUDE.md already has Project Context, skip that section
+- After init, remind user to run `coworker sync`

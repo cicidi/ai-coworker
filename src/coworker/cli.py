@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import sys
 from pathlib import Path
 
@@ -85,11 +86,91 @@ def main():
     pass
 
 
+def _scan_project() -> dict:
+    cwd = Path.cwd()
+    info = {
+        "project_name": cwd.name,
+        "language": "unknown",
+        "framework": [],
+        "package_manager": None,
+        "test_command": None,
+        "lint_command": None,
+        "ides": [],
+        "repo_url": None,
+        "deps": [],
+    }
+    import subprocess
+    try:
+        r = subprocess.run(["git", "remote", "get-url", "origin"],
+                          capture_output=True, text=True, cwd=str(cwd))
+        if r.returncode == 0:
+            info["repo_url"] = r.stdout.strip()
+    except Exception:
+        pass
+    if (cwd / "package.json").exists():
+        info["language"] = "Node.js"
+        info["package_manager"] = "npm"
+        try:
+            pkg = json.loads((cwd / "package.json").read_text())
+            deps = {}
+            deps.update(pkg.get("dependencies", {}))
+            deps.update(pkg.get("devDependencies", {}))
+            info["deps"] = list(deps.keys())
+            if "react" in deps: info["framework"].append("React")
+            if "next" in deps: info["framework"].append("Next.js")
+            if "express" in deps: info["framework"].append("Express")
+            scripts = pkg.get("scripts", {})
+            if "test" in scripts: info["test_command"] = "npm test"
+            if "lint" in scripts: info["lint_command"] = "npm run lint"
+        except Exception:
+            pass
+    elif (cwd / "pyproject.toml").exists():
+        info["language"] = "Python"
+        info["package_manager"] = "pip"
+        info["test_command"] = "pytest"
+        info["lint_command"] = "ruff"
+    elif (cwd / "go.mod").exists():
+        info["language"] = "Go"
+        info["package_manager"] = "go mod"
+        info["test_command"] = "go test ./..."
+    elif (cwd / "Cargo.toml").exists():
+        info["language"] = "Rust"
+        info["package_manager"] = "cargo"
+        info["test_command"] = "cargo test"
+    home = Path.home()
+    if (home / ".claude").exists(): info["ides"].append("claude")
+    if (home / ".config/opencode").exists(): info["ides"].append("opencode")
+    if (home / ".gemini").exists(): info["ides"].append("gemini")
+    if (cwd / ".cursor").exists(): info["ides"].append("cursor")
+    return info
+
+
+def _build_project_section(info: dict) -> str:
+    lines = ["## Project Context", ""]
+    lines.append(f"- **Language:** {info['language']}")
+    if info["framework"]:
+        lines.append(f"- **Framework:** {', '.join(info['framework'])}")
+    if info["package_manager"]:
+        lines.append(f"- **Package manager:** {info['package_manager']}")
+    if info["test_command"]:
+        lines.append(f"- **Test:** `{info['test_command']}`")
+    if info["lint_command"]:
+        lines.append(f"- **Lint:** `{info['lint_command']}`")
+    if info["repo_url"]:
+        lines.append(f"- **Repo:** {info['repo_url']}")
+    if info["deps"]:
+        lines.append("")
+        lines.append("### Key Dependencies")
+        for dep in info["deps"][:10]:
+            lines.append(f"- `{dep}`")
+    return "\n".join(lines) + "\n"
+
+
 @main.command()
 @click.option("--global", "is_global", is_flag=True, default=False, help="Init global config")
 @click.option("--project", "is_project", is_flag=True, default=False, help="Init project config in cwd")
 def init(is_global, is_project):
-    """Initialize global or project config."""
+    """Initialize global or project config with auto-scan."""
     if not is_global and not is_project:
         is_global = click.confirm("Init global config (~/.coworker/)?", default=True)
         if not is_global:
@@ -107,13 +188,42 @@ def init(is_global, is_project):
         console.print(f"[dim]Skills dir:[/dim] {skills_dir}")
 
     if is_project:
+        info = _scan_project()
+        console.print(f"\n[bold]Project Scan:[/bold] {info['project_name']}")
+        console.print(f"  Language:      {info['language']}")
+        if info["framework"]:
+            console.print(f"  Framework:     {', '.join(info['framework'])}")
+        if info["deps"]:
+            deps_show = info["deps"][:8]
+            console.print(f"  Dependencies:  {', '.join(deps_show)}{'...' if len(info['deps']) > 8 else ''}")
+        if info["repo_url"]:
+            console.print(f"  Repo:          {info['repo_url']}")
+        if info["ides"]:
+            console.print(f"  Detected IDEs: {', '.join(info['ides'])}")
+        console.print(f"  Test command:  {info['test_command'] or 'not detected'}")
+        console.print(f"  Lint command:  {info['lint_command'] or 'not detected'}")
+
+        if not click.confirm("\nCreate project config with these settings?", default=True):
+            return
+
         project_config = Path.cwd() / PROJECT_CONFIG_NAME
-        project_config.parent.mkdir(parents=True, exist_ok=True)
-        if project_config.exists():
-            console.print(f"[yellow]Already exists:[/yellow] {project_config}")
+        project_config.write_text(PROJECT_CONFIG_TEMPLATE)
+        console.print(f"[green]Created:[/green] {project_config}")
+
+        claude_md = Path.cwd() / "CLAUDE.md"
+        section = _build_project_section(info)
+        if claude_md.exists():
+            content = claude_md.read_text()
+            if "## Project Context" in content:
+                console.print("[yellow]CLAUDE.md already has Project Context, skipping.[/yellow]")
+            else:
+                claude_md.write_text(content.rstrip() + "\n\n" + section + "\n")
+                console.print(f"[green]Updated:[/green] CLAUDE.md")
         else:
-            project_config.write_text(PROJECT_CONFIG_TEMPLATE)
-            console.print(f"[green]Created:[/green] {project_config}")
+            claude_md.write_text(section + "\n")
+            console.print(f"[green]Created:[/green] CLAUDE.md")
+
+        console.print("\n[bold green]Setup complete![/bold green] Run [cyan]coworker sync[/cyan] to apply.")
 
 
 @main.command()
