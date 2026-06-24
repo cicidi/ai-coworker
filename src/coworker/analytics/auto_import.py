@@ -1,51 +1,53 @@
-"""Auto-import daemon: scan sessions, import new data, handle incremental updates."""
+"""Auto-import daemon: scan sessions, store metadata + stats only. Raw data lives at source."""
 import json
-import sqlite3
 import time
 from pathlib import Path
 from datetime import datetime
 from src.coworker.analytics.db import get_db
-from src.coworker.analytics.import_data import import_session
 
 HOME = Path.home()
 BASE = HOME / ".coworker" / "analytics"
 SESSIONS = BASE / "sessions"
 OPCODE_DB = HOME / ".local" / "share" / "opencode" / "opencode.db"
 CLAUDE_PROJECTS = HOME / ".claude" / "projects"
-POLL_INTERVAL = 1800  # 30 minutes
+POLL_INTERVAL = 1800
 
 
-def collect_claude_jsonl_sessions(conn) -> list[Path]:
-    """Find Claude Code JSONL session files not yet imported."""
-    if not CLAUDE_PROJECTS.exists():
-        return []
-    existing = set(
-        r[0] for r in conn.execute("SELECT id FROM sessions WHERE ide='claude-code'").fetchall()
-    )
-    new_files = []
-    for project_dir in sorted(CLAUDE_PROJECTS.iterdir()):
-        if not project_dir.is_dir():
+def _count_jsonl_lines(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return len([l for l in path.read_text().strip().split("\n") if l.strip()])
+
+
+def _count_jsonl_skill_calls(path: Path) -> set:
+    """Count Skill invocations in a Claude Code JSONL session."""
+    skills = set()
+    if not path.exists():
+        return skills
+    for line in path.read_text().strip().split("\n"):
+        try:
+            obj = json.loads(line)
+            msg = obj.get("message", {})
+            if isinstance(msg, dict):
+                for block in msg.get("content", []) if isinstance(msg.get("content"), list) else []:
+                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Skill":
+                        sname = block.get("input", {}).get("name", "")
+                        if sname:
+                            skills.add(sname)
+        except json.JSONDecodeError:
             continue
-        for jsonl_file in sorted(project_dir.glob("*.jsonl")):
-            sid = jsonl_file.stem
-            if sid not in existing:
-                new_files.append(jsonl_file)
-    return new_files
+    return skills
 
 
-def import_claude_jsonl_session(jsonl_file: Path, conn):
-    """Import a Claude Code JSONL session file."""
+def import_claude_jsonl(jsonl_file: Path, conn):
+    """Store session metadata + stats from Claude Code JSONL."""
     sid = jsonl_file.stem
     lines = jsonl_file.read_text().strip().split("\n")
-    if not lines:
-        return
+    msg_count = len(lines)
 
-    # Parse first/last lines for session metadata
-    created = None
+    created = ""
     model = ""
     cwd = ""
-    project_name = jsonl_file.parent.name
-
     for line in lines:
         try:
             obj = json.loads(line)
@@ -54,12 +56,6 @@ def import_claude_jsonl_session(jsonl_file: Path, conn):
                 mi = obj.get("message", {})
                 if isinstance(mi, dict):
                     model = mi.get("model", "")
-                elif isinstance(mi, str):
-                    try:
-                        mi2 = json.loads(mi.replace("'", '"'))
-                        model = mi2.get("model", "")
-                    except Exception:
-                        pass
             if obj.get("cwd") and not cwd:
                 cwd = obj["cwd"]
         except json.JSONDecodeError:
@@ -68,95 +64,64 @@ def import_claude_jsonl_session(jsonl_file: Path, conn):
     conn.execute(
         """INSERT OR REPLACE INTO sessions (id, ide, project, cwd, model, created_at)
            VALUES (?, 'claude-code', ?, ?, ?, ?)""",
-        (sid, project_name, cwd, model, created or ""),
+        (sid, jsonl_file.parent.name, cwd, model, created or ""),
     )
 
-    for seq, line in enumerate(lines):
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    # Skill tracking
+    skills = _count_jsonl_skill_calls(jsonl_file)
+    for sname in skills:
+        conn.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (sname,))
+        conn.execute(
+            "UPDATE skills SET total_calls = total_calls + 1 WHERE name = ?", (sname,)
+        )
 
-        msg_type = obj.get("type", "")
-        ts = obj.get("timestamp", "")
-        msg = obj.get("message", {})
-
-        if msg_type in ("user", "assistant"):
-            content = ""
-            if isinstance(msg, dict):
-                raw_content = msg.get("content", "")
-                if isinstance(raw_content, list):
-                    text_parts = []
-                    for block in raw_content:
-                        if isinstance(block, dict):
-                            if block.get("type") == "text":
-                                text_parts.append(block.get("text", ""))
-                            elif block.get("type") == "tool_use":
-                                # Store tool_use as tool_call
-                                tname = block.get("name", "")
-                                tinput = json.dumps(block.get("input", {}))[:4000]
-                                tcid = block.get("id", f"cc-{sid}-{seq}")
-                                conn.execute(
-                                    "INSERT OR IGNORE INTO tool_calls (session_id, call_id, tool, tool_type, args, seq_before, ts) VALUES (?, ?, ?, 'claude-code', ?, ?, ?)",
-                                    (sid, tcid, tname, tinput, seq, ts),
-                                )
-                                if tname == "Skill":
-                                    skill_name = block.get("input", {}).get("name", "")
-                                    if isinstance(skill_name, str) and skill_name:
-                                        conn.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (skill_name,))
-                    content = "\n".join(text_parts)
-                elif isinstance(raw_content, str):
-                    content = raw_content
-            elif isinstance(msg, str):
-                content = msg
-
-            if content:
-                role = msg_type
-                conn.execute(
-                    "INSERT OR IGNORE INTO messages (session_id, seq, type, content, ts) VALUES (?, ?, ?, ?, ?)",
-                    (sid, seq, role, content, ts),
-                )
-
-        elif msg_type == "result":
-            # Tool result
-            result_text = msg.get("output", msg.get("result", "")) if isinstance(msg, dict) else str(msg)
-            conn.execute(
-                "INSERT OR IGNORE INTO tool_calls (session_id, call_id, tool, tool_type, result, seq_after, ts) VALUES (?, ?, 'result', 'claude-code', ?, ?, ?)",
-                (sid, f"cc-result-{sid}-{seq}", str(result_text)[:4000], seq, ts),
-            )
-
-    _update_session_stats(conn, sid)
+    # Stats
+    conn.execute(
+        """INSERT OR REPLACE INTO session_stats
+           (session_id, message_count, updated_at)
+           VALUES (?, ?, ?)""",
+        (sid, msg_count, datetime.now().isoformat()),
+    )
     conn.commit()
 
 
-def get_last_imported_session(conn) -> str | None:
-    """Get the most recent session in analytics DB."""
-    row = conn.execute(
-        "SELECT id FROM sessions ORDER BY created_at DESC LIMIT 1"
-    ).fetchone()
-    return row["id"] if row else None
+def import_claude_hooks(session_dir: Path, conn):
+    """Store metadata from Claude Code hooks session directory."""
+    sid = session_dir.name
+    yaml_file = session_dir / "session.yaml"
+    msgs_file = session_dir / "messages.jsonl"
+    tools_file = session_dir / "tools.jsonl"
 
+    msg_count = _count_jsonl_lines(msgs_file)
+    tool_count = _count_jsonl_lines(tools_file)
 
-def collect_new_claude_sessions(conn) -> list[Path]:
-    """Find Claude Code sessions newer than what's in the DB."""
-    if not SESSIONS.exists():
-        return []
-    last = get_last_imported_session(conn)
-    existing = set(
-        r[0] for r in conn.execute("SELECT id FROM sessions").fetchall()
+    info = {}
+    if yaml_file.exists():
+        for line in yaml_file.read_text().strip().split("\n"):
+            if ":" in line:
+                k, _, v = line.partition(":")
+                info[k.strip()] = v.strip().strip('"')
+
+    conn.execute(
+        """INSERT OR REPLACE INTO sessions (id, ide, project, cwd, model, created_at)
+           VALUES (?, 'claude-code', ?, ?, ?, ?)""",
+        (sid, info.get("project", ""), info.get("cwd", ""), info.get("model", ""), info.get("created", "")),
     )
-    # Return ALL session dirs — import_session handles incremental inserts
-    # But skip ones we've already fully imported (where session.yaml hasn't changed)
-    return [
-        d for d in sorted(SESSIONS.iterdir())
-        if d.is_dir() and not d.name.startswith('.') and (d / "session.yaml").exists()
-    ]
+
+    conn.execute(
+        """INSERT OR REPLACE INTO session_stats
+           (session_id, message_count, tool_count, updated_at)
+           VALUES (?, ?, ?, ?)""",
+        (sid, msg_count, tool_count, datetime.now().isoformat()),
+    )
+    conn.commit()
 
 
-def collect_new_opencode_sessions(conn) -> list[dict]:
-    """Find OpenCode sessions not yet in analytics DB."""
+def import_opencode_meta(conn):
+    """Import OpenCode session metadata from opencode.db."""
     if not OPCODE_DB.exists():
-        return []
+        return 0
+    import sqlite3
     existing = set(
         r[0] for r in conn.execute("SELECT id FROM sessions WHERE ide='opencode'").fetchall()
     )
@@ -165,174 +130,104 @@ def collect_new_opencode_sessions(conn) -> list[dict]:
         oc.row_factory = sqlite3.Row
         rows = oc.execute(
             "SELECT id, title, model, cost, tokens_input, tokens_output, time_created "
-            "FROM session WHERE title IS NOT NULL AND title != '' "
-            "ORDER BY time_created DESC"
+            "FROM session WHERE title IS NOT NULL AND title != ''"
         ).fetchall()
         oc.close()
-        return [dict(r) for r in rows if r["id"] not in existing]
     except sqlite3.Error:
-        return []
+        return 0
 
-
-def import_opencode_session(session: dict, conn):
-    """Import a single OpenCode session into analytics DB."""
-    sid = session["id"]
-    created = session.get("time_created", "")
-    if created:
-        try:
-            created = datetime.fromtimestamp(int(created) / 1000).isoformat()
-        except (ValueError, TypeError, OSError):
-            pass
-
-    conn.execute(
-        """INSERT OR REPLACE INTO sessions (id, ide, model, created_at, closed_at)
-           VALUES (?, 'opencode', ?, ?, ?)""",
-        (sid, session.get("model", ""), created, created),
-    )
-
-    opcode = sqlite3.connect(str(OPCODE_DB))
-    opcode.row_factory = sqlite3.Row
-    parts = opcode.execute(
-        "SELECT data, time_created FROM part WHERE session_id=? AND data IS NOT NULL ORDER BY time_created ASC",
-        (sid,)
-    ).fetchall()
-    opcode.close()
-
-    for seq, (data_raw, ts) in enumerate(parts):
-        try:
-            obj = json.loads(data_raw)
-            mtype = obj.get("type", "")
-            text = obj.get("text", "")
-            if mtype in ("text", "reasoning") and text:
-                conn.execute(
-                    "INSERT OR IGNORE INTO messages (session_id, seq, type, content, ts) VALUES (?, ?, ?, ?, ?)",
-                    (sid, seq, mtype, text, str(ts)),
-                )
-            elif mtype == "tool":
-                tool_name = obj.get("name", obj.get("tool", ""))
-                tool_input = json.dumps(obj.get("input", {}))[:4000]
-                call_id = f"oc-{sid}-{seq}"
-                conn.execute(
-                    "INSERT OR IGNORE INTO tool_calls (session_id, call_id, tool, tool_type, args, seq_before, ts) VALUES (?, ?, ?, 'opencode', ?, ?, ?)",
-                    (sid, call_id, tool_name, tool_input, seq, str(ts)),
-                )
-                if tool_name == "Skill":
-                    skill_name = obj.get("input", {}).get("name", "")
-                    if skill_name:
-                        conn.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (skill_name,))
-                        conn.execute(
-                            "UPDATE skills SET total_calls = total_calls + 1 WHERE name = ?",
-                            (skill_name,),
-                        )
-        except json.JSONDecodeError:
+    count = 0
+    for row in rows:
+        sid = row["id"]
+        if sid in existing:
             continue
-
-    # Update stats
-    _update_session_stats(conn, sid)
+        created = row["time_created"]
+        if created:
+            try:
+                created = datetime.fromtimestamp(int(created) / 1000).isoformat()
+            except (ValueError, TypeError, OSError):
+                pass
+        conn.execute(
+            """INSERT OR REPLACE INTO sessions (id, ide, model, created_at)
+               VALUES (?, 'opencode', ?, ?)""",
+            (sid, row["model"] or "", created or ""),
+        )
+        conn.execute(
+            """INSERT OR REPLACE INTO session_stats
+               (session_id, message_count, tool_count, updated_at)
+               VALUES (?, ?, ?, ?)""",
+            (sid, 0, 0, datetime.now().isoformat()),
+        )
+        count += 1
     conn.commit()
-
-
-def _update_session_stats(conn, sid: str):
-    msg_count = conn.execute(
-        "SELECT COUNT(*) FROM messages WHERE session_id = ?", (sid,)
-    ).fetchone()[0]
-    tool_count = conn.execute(
-        "SELECT COUNT(*) FROM tool_calls WHERE session_id = ?", (sid,)
-    ).fetchone()[0]
-    conn.execute(
-        """INSERT OR REPLACE INTO session_stats
-           (session_id, message_count, tool_count, updated_at)
-           VALUES (?, ?, ?, ?)""",
-        (sid, msg_count, tool_count, datetime.now().isoformat()),
-    )
+    return count
 
 
 def run_once(verbose: bool = False) -> dict:
-    """Scan for new sessions and import them. DB is the source of truth."""
     conn = get_db()
-    stats = {"claude": 0, "opencode": 0, "updated": 0, "skipped": 0}
+    stats = {"claude_jsonl": 0, "claude_hooks": 0, "opencode": 0, "skipped": 0}
 
-    # --- Claude Code sessions ---
-    claude_dirs = sorted(
-        [d for d in SESSIONS.iterdir()
-         if d.is_dir() and not d.name.startswith('.') and (d / "session.yaml").exists()]
-    ) if SESSIONS.exists() else []
+    existing = set(r[0] for r in conn.execute("SELECT id FROM sessions").fetchall())
 
-    # Get last DB state for Claude sessions
-    db_sessions = set(
-        r[0] for r in conn.execute("SELECT id FROM sessions WHERE ide='claude-code'").fetchall()
-    ) if SESSIONS.exists() else set()
+    # --- Claude Code JSONL ---
+    if CLAUDE_PROJECTS.exists():
+        for project_dir in sorted(CLAUDE_PROJECTS.iterdir()):
+            if not project_dir.is_dir():
+                continue
+            for jsonl_file in sorted(project_dir.glob("*.jsonl")):
+                sid = jsonl_file.stem
+                if sid in existing:
+                    stats["skipped"] += 1
+                    continue
+                try:
+                    import_claude_jsonl(jsonl_file, conn)
+                    existing.add(sid)
+                    stats["claude_jsonl"] += 1
+                    if verbose:
+                        print(f"  [claude-jsonl] {sid}")
+                except Exception as e:
+                    if verbose:
+                        print(f"  [claude-jsonl] fail {sid}: {e}")
 
-    # Get message counts from DB to detect new messages
-    msg_counts = {}
+    # --- Claude Code hooks ---
     if SESSIONS.exists():
-        for r in conn.execute(
-            "SELECT session_id, COUNT(*) as cnt FROM messages GROUP BY session_id"
-        ).fetchall():
-            msg_counts[r["session_id"]] = r["cnt"]
+        for session_dir in sorted(SESSIONS.iterdir()):
+            if not session_dir.is_dir() or session_dir.name.startswith('.'):
+                continue
+            if not (session_dir / "session.yaml").exists():
+                continue
+            sid = session_dir.name
+            if sid in existing:
+                stats["skipped"] += 1
+                continue
+            try:
+                import_claude_hooks(session_dir, conn)
+                existing.add(sid)
+                stats["claude_hooks"] += 1
+                if verbose:
+                    print(f"  [claude-hooks] {sid}")
+            except Exception as e:
+                if verbose:
+                    print(f"  [claude-hooks] fail {sid}: {e}")
 
-    for session_dir in claude_dirs:
-        sid = session_dir.name
-        msgs_file = session_dir / "messages.jsonl"
-        file_msg_count = 0
-        if msgs_file.exists():
-            file_msg_count = len(
-                [l for l in msgs_file.read_text().strip().split("\n") if l.strip()]
-            )
-
-        if sid in db_sessions and file_msg_count <= msg_counts.get(sid, 0):
-            stats["skipped"] += 1
-            continue
-
-        try:
-            import_session(session_dir, conn)
-            stats["claude" if sid not in db_sessions else "updated"] += 1
-            if verbose:
-                tag = "new" if sid not in db_sessions else "updated"
-                print(f"  [claude] {tag} {sid}")
-        except Exception as e:
-            if verbose:
-                print(f"  [claude] failed {sid}: {e}")
-
-    # --- Claude Code JSONL sessions (native session files) ---
-    jsonl_files = collect_claude_jsonl_sessions(conn)
-    for jsonl_file in jsonl_files:
-        try:
-            import_claude_jsonl_session(jsonl_file, conn)
-            stats["claude"] += 1
-            if verbose:
-                print(f"  [claude-jsonl] new {jsonl_file.stem}")
-        except Exception as e:
-            if verbose:
-                print(f"  [claude-jsonl] failed {jsonl_file.stem}: {e}")
-
-    # --- OpenCode sessions ---
-    opencode_sessions = collect_new_opencode_sessions(conn)
-    for session in opencode_sessions:
-        try:
-            import_opencode_session(session, conn)
-            stats["opencode"] += 1
-            if verbose:
-                print(f"  [opencode] new {session['id']}")
-        except Exception as e:
-            if verbose:
-                print(f"  [opencode] failed {session['id']}: {e}")
+    # --- OpenCode ---
+    oc_count = import_opencode_meta(conn)
+    stats["opencode"] = oc_count
 
     conn.close()
     return stats
 
 
 def run_daemon(interval: int = POLL_INTERVAL):
-    """Run indefinitely, polling every `interval` seconds."""
     print(f"[daemon] Auto-import started (interval: {interval}s, {interval//60}min)")
+    print(f"[daemon] Claude JSONL: {CLAUDE_PROJECTS}")
     print(f"[daemon] Claude hooks: {SESSIONS}")
-    print(f"[daemon] Claude sessions: {CLAUDE_PROJECTS}")
-    print(f"[daemon] OpenCode DB: {OPCODE_DB}")
+    print(f"[daemon] OpenCode DB:  {OPCODE_DB}")
 
     while True:
         stats = run_once(verbose=True)
-        total = stats["claude"] + stats["opencode"] + stats["updated"]
+        total = stats["claude_jsonl"] + stats["claude_hooks"] + stats["opencode"]
         print(f"[daemon] {datetime.now().strftime('%H:%M:%S')} "
-              f"new_claude={stats['claude']} new_opencode={stats['opencode']} "
-              f"updated={stats['updated']} skipped={stats['skipped']}")
+              f"claude_jsonl={stats['claude_jsonl']} claude_hooks={stats['claude_hooks']} "
+              f"opencode={stats['opencode']} skipped={stats['skipped']}")
         time.sleep(interval)
