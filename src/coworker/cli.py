@@ -682,27 +682,33 @@ def initiative_remove(name, proj_dir, force):
         console.print(f"[red]{e}[/red]")
 
 
-# ── Analytics & Dashboard (top-level) ────────────────────────────────────
+# ── Analytics ─────────────────────────────────────────────────────────────
 
-@initiative.command("analytics-db-init")
-def analytics_db_init():
+@main.group()
+def analytics():
+    """Analytics database and dashboard commands."""
+    pass
+
+
+@analytics.command("create-db")
+def analytics_create_db():
     """Initialize analytics SQLite database."""
     from .analytics.db import init_db
     init_db()
     console.print("[green]Analytics database initialized.[/green]")
 
 
-@initiative.command("analytics-import")
+@analytics.command("import")
 def analytics_import():
     """Import raw JSONL sessions into SQLite."""
     from .analytics.import_data import import_all
     import_all()
 
 
-@initiative.command("dashboard")
+@analytics.command("dashboard")
 @click.option("--port", default=8080, help="Port to listen on")
 @click.option("--db", default=None, help="Path to analytics database")
-def dashboard_serve(port, db):
+def analytics_dashboard(port, db):
     """Start the analytics dashboard."""
     import os
     if db:

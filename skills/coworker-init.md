@@ -1,5 +1,5 @@
 ---
-name: coworker-meta-setup-coworker
+name: coworker-init
 triggers:
   - setup coworker
   - initialize ai coworker

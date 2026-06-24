@@ -1,5 +1,5 @@
 ---
-name: setup-coworker
+name: init
 description: 5-step interactive setup — scan project, generate CLAUDE.md, detect identity, create local config, install hooks
 aliases: [setup]
 ---

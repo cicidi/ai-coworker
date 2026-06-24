@@ -54,8 +54,8 @@ All understanding and task plans live in the conversation.
 - Never fabricate information — ask user when uncertain
 - Never skip review checkpoints
 - Never create pure-AI PRs — all PRs must be human co-created
-- Never create skill files without the `create-skill` workflow
-- Never commit skill changes without the `edit-skill` workflow
+- Never create skill files without the `skill-create` workflow (in skill-factory)
+- Never commit skill changes without the `skill-edit` workflow (in skill-factory)
 
 ## MCP Usage
 - **GitHub**: use for issues, PRs, comments. Re-auth if session expired.
