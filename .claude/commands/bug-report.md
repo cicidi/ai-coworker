@@ -1,7 +1,7 @@
 ---
 name: bug-report
-description: Create a GitHub Issue — for project bugs, coworker system issues, or feature requests
-aliases: [new-issue, create-issue, report-bug, issue]
+description: Create a GitHub Issue on any repo — bugs, features, coworker system issues. Reads project catalog for repos.
+aliases: [new-issue, create-issue, report-bug, issue, report]
 ---
 
 # Bug Report
@@ -17,68 +17,55 @@ Create a structured GitHub Issue. Covers project bugs, coworker system issues, a
 
 ## Process
 
-### 1. Detect Scope
+### 1. Pick Repo
+
+```
+→ Check if coworker project catalog has GitHub repos
+→ List available: "Report to which repo?"
+  1. {current project} (default)
+  2. ai-coworker
+  3. skill-factory
+  4. Other (enter owner/repo manually)
+→ Default: current project's repo
+```
+
+### 2. Detect Scope
 
 ```
 → Is this a code bug? → label: bug
-→ Is this a coworker system issue? → label: coworker
-→ Is this a feature request? → label: enhancement
+→ Coworker system issue? → label: coworker
+→ Feature request? → label: enhancement
 ```
 
-### 2. Gather Context
+### 3. Gather Context
 
 ```
 → What happened vs what was expected?
 → Steps to reproduce (if bug)
-→ Relevant files, error messages, screenshots
-→ Affected components
+→ Relevant files, error messages
+→ Affected project/repo
 ```
 
-### 3. Title
+### 4. Title
 
 ```
 fix: {short description}    (for bugs)
 feat: {short description}   (for features)
-chore: {short description}  (for maintenance)
 ```
 
-### 4. Body
-
-```markdown
-## What happened
-{description}
-
-## Expected behavior
-{expected}
-
-## Steps to reproduce (if bug)
-1. 
-2. 
-
-## Context
-- Project: {name}
-- Branch: {branch}
-- Relevant files: {paths}
-```
-
-### 5. Create & Link
+### 5. Create on GitHub
 
 ```bash
 gh issue create \
+  --repo {owner}/{repo} \
   --title "fix: {description}" \
   --body "{body}" \
-  --label "{labels}" \
-  --assignee @me
+  --label "{labels}"
 ```
 
 ### 6. If AI Mistake
 
-If this was caused by an AI error, also:
-
-```
-→ Log self-heal trace for this correction
-→ Note in issue body: "AI caused: {what went wrong}"
-```
+Log self-heal trace and note in issue body.
 
 ## Rules
 
