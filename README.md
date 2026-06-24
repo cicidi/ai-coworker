@@ -86,7 +86,7 @@ Your content outside these comment blocks is never modified.
 
 ## Skill Management
 
-AI Coworker connects to [skill-factory](https://github.com/cicidi/skill-factory) for the full skill lifecycle:
+Skills are created and edited in the [skill-factory source repo](https://github.com/cicidi/skill-factory), then deployed to IDE configs:
 
 | Task | Tool |
 |------|------|
@@ -95,4 +95,20 @@ AI Coworker connects to [skill-factory](https://github.com/cicidi/skill-factory)
 | Import external skill | skill-factory `skill-import` |
 | List/install skills | `coworker sync` |
 
-Skills live in skill-factory. AI Coworker syncs them to your IDE.
+## Testing
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run specific test suites
+python -m pytest tests/python/test_models.py -v
+python -m pytest tests/python/test_config.py -v
+python -m pytest tests/python/test_injection.py -v
+python -m pytest tests/python/test_cli.py -v
+python -m pytest tests/python/test_skill_factory_integration.py -v
+```
+
+## License
+
+MIT

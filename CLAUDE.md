@@ -2,8 +2,7 @@
 
 ## Identity
 - Read `.local_config.yaml` for username, project name, and doc paths
-- Use `templates/team-common/context/profiles/team.yaml` for team member lookup
-- Use `templates/team-common/context/projects/projects.yaml` for project metadata
+- Use `personal/context/projects.yaml` for project metadata catalog
 
 ## Core Philosophy
 - **Human decides, AI executes.** When uncertain, ask — never assume.
