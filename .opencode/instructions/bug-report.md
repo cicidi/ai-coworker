@@ -1,44 +1,88 @@
 ---
 name: bug-report
-description: Report a bug or problem with the AI coworker system itself to GitHub Issues
-aliases: [report-bug]
+description: Create a GitHub Issue — for project bugs, coworker system issues, or feature requests
+aliases: [new-issue, create-issue, report-bug, issue]
 ---
 
-# Report Coworker Issue
+# Bug Report
 
-Use this skill to report bugs, missing features, or incorrect behavior in the ai-coworker system.
+Create a structured GitHub Issue. Covers project bugs, coworker system issues, and feature requests.
+
+## When to Use
+
+- User reports a bug or unexpected behavior
+- Coworker system itself malfunctions
+- Feature request that needs discussion
+- Any non-trivial change before code
 
 ## Process
 
-1. **Describe the problem**
-   - What did AI do that was wrong?
-   - What was the expected behavior?
-   - Which skill or rule caused the issue?
+### 1. Detect Scope
 
-2. **Draft GitHub Issue**
-   ```
-   Title: [coworker] {short description}
-   
-   ## What happened
-   {description of incorrect AI behavior}
-   
-   ## Expected behavior
-   {what should have happened}
-   
-   ## Affected skill/rule
-   {skill name or CLAUDE.md section}
-   
-   ## Reproduction steps
-   1. ...
-   2. ...
-   
-   ## Suggested fix
-   {optional — if you know the fix}
-   ```
+```
+→ Is this a code bug? → label: bug
+→ Is this a coworker system issue? → label: coworker
+→ Is this a feature request? → label: enhancement
+```
 
-3. **Create issue via GitHub MCP**
-   - Repo: `cicidi/ai-coworker`
-   - Label: `coworker-bug` or `coworker-improvement`
-   - Assign to: cicidi
+### 2. Gather Context
 
-4. **Log a self-healing trace** if this was an AI mistake (run `self-healing-trace`)
+```
+→ What happened vs what was expected?
+→ Steps to reproduce (if bug)
+→ Relevant files, error messages, screenshots
+→ Affected components
+```
+
+### 3. Title
+
+```
+fix: {short description}    (for bugs)
+feat: {short description}   (for features)
+chore: {short description}  (for maintenance)
+```
+
+### 4. Body
+
+```markdown
+## What happened
+{description}
+
+## Expected behavior
+{expected}
+
+## Steps to reproduce (if bug)
+1. 
+2. 
+
+## Context
+- Project: {name}
+- Branch: {branch}
+- Relevant files: {paths}
+```
+
+### 5. Create & Link
+
+```bash
+gh issue create \
+  --title "fix: {description}" \
+  --body "{body}" \
+  --label "{labels}" \
+  --assignee @me
+```
+
+### 6. If AI Mistake
+
+If this was caused by an AI error, also:
+
+```
+→ Log self-heal trace for this correction
+→ Note in issue body: "AI caused: {what went wrong}"
+```
+
+## Rules
+
+- One issue per problem
+- Fill in all sections before creating
+- Always assign yourself
+- Never skip the issue for non-trivial changes
