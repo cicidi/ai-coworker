@@ -1,6 +1,5 @@
 # Private data only — skills are public
-personal/context/
-personal/data/
+personal/
 .local_config.yaml
 .env
 *.local
