@@ -20,3 +20,4 @@ docs/
 global/
 .mcp.json
 .self-healing/
+.claude/hooks/
