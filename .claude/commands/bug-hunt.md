@@ -1,71 +1,68 @@
 ---
 name: bug-hunt
-description: Scientific debugging — hypothesis → test → confirm → fix. Best with strongest model.
-aliases: [debug, investigate-bug]
+description: Root cause investigation — from quick code bug to multi-service outage. Hypothesis-driven, no guessing.
+aliases: [debug, investigate, oncall, deep-dive, sleuth]
 ---
 
-# Issue Debug
+# Bug Hunt
 
-Systematic scientific debugging. No guessing — form hypothesis, test it, confirm, then fix.
+Find and fix the root cause. Two modes depending on scope.
 
-## Model Recommendation
-Use the strongest available model (Opus) for complex debugging.
+## Choose Mode
 
-## Process
+### Mode 1: Quick Debug
+Known code bug, single service, stack trace available.
 
-### 1. Gather Evidence
-```
-→ Read error message / stack trace in full
-→ Read the failing test or reproduction case
-→ Read the code around the failure point
-→ Check git log — when did this start failing?
-→ Check if tests pass on main branch
-```
+1. **Gather** — error message, stack trace, failing test, git log
+2. **Hypothesize** — 3-5 possible causes, ranked by likelihood
+3. **Test** — test each hypothesis, stop when confirmed
+4. **Fix** — minimal fix + regression test
+5. **Document** — commit: "fix: {desc} — root cause: {cause}"
 
-### 2. Form Hypotheses
-List 3-5 possible root causes, ranked by likelihood:
-```
-H1 (most likely): {hypothesis}
-H2: {hypothesis}
-H3: {hypothesis}
-```
+### Mode 2: Deep Investigation
+Unknown cause, multi-service, production outage, on-call.
 
-### 3. Test Each Hypothesis
-For each hypothesis, define a minimal test:
-```
-Test H1: {what to check}
-→ Run: {command or code change}
-→ Expected if H1 is true: {result}
-→ Actual: {result}
-→ H1: CONFIRMED / REJECTED
-```
+1. **Define** — what's observable? when started? what changed? who affected?
+2. **Data sources** — logs, git log, PRs, metrics, deployments
+3. **Investigate** — follow each lead autonomously, don't stop at first finding
+4. **Timeline** — build event timeline, mark probable root cause
+5. **Report** — structured report: problem, root cause, evidence, fix, prevention
+6. **Issue** — create GitHub Issue with the report
 
-Test in order — stop when first is confirmed.
+## Investigation Report Format (Mode 2)
 
-### 4. Identify Root Cause
-```
-Root cause: {precise description}
-Evidence: {what confirmed it}
-Location: {file:line}
-```
+```markdown
+## Investigation Report
 
-### 5. Fix
-```
-→ Minimal fix that addresses root cause
-→ Do NOT over-fix or refactor surrounding code
-→ Add regression test that would have caught this
-→ Verify fix doesn't break other tests
-```
+**Problem:** {description}
+**Duration:** {start} → {end or ongoing}
+**Impact:** {affected users/systems}
 
-### 6. Document
-```
-→ Update GitHub Issue with root cause and fix
-→ Commit: "fix: {description} — root cause was {brief}"
-→ If pattern is generalizable → log self-healing trace
+## Root Cause
+{precise description}
+
+## Evidence
+1. {evidence}
+2. {evidence}
+
+## Timeline
+| Time | Event |
+|------|-------|
+| T1   | {event} |
+| T2   | {event} ← root cause here |
+
+## Fix
+{what to do}
+
+## Prevention
+{how to prevent recurrence}
 ```
 
-## Anti-Patterns to Avoid
-- Never "try something and see" without a hypothesis
+## Rules
+
+- Never guess — every fix backed by evidence
 - Never fix symptoms instead of root cause
 - Never add workarounds for code you don't understand
-- Never skip the regression test
+- Always add a regression test
+- If pattern is generalizable → log self-heal trace
+- Use strongest model for complex investigations
