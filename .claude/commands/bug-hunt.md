@@ -13,8 +13,19 @@ Find and fix the root cause. Two modes depending on scope.
 ### Mode 1: Quick Debug
 Known code bug, single service, stack trace available.
 
-1. **Gather** — error message, stack trace, failing test, git log
-2. **Hypothesize** — 3-5 possible causes, ranked by likelihood
+1. **Collect** — gather ALL potentially relevant info before analyzing:
+   - Error message + full stack trace
+   - Failing test or reproduction steps
+   - Recent git log (what changed?)
+   - Related logs, config values, env differences
+   - Any user reports or messages about the issue
+   - Do NOT filter or judge relevance yet — grab everything
+
+2. **Reason** — list evidence and form hypotheses:
+   - List each piece of evidence found
+   - 3-5 possible root causes, ranked by likelihood
+   - Link each hypothesis to specific evidence
+
 3. **Test** — test each hypothesis, stop when confirmed
 4. **Fix** — minimal fix + regression test
 5. **Document** — commit: "fix: {desc} — root cause: {cause}"
@@ -22,12 +33,23 @@ Known code bug, single service, stack trace available.
 ### Mode 2: Deep Investigation
 Unknown cause, multi-service, production outage, on-call.
 
-1. **Define** — what's observable? when started? what changed? who affected?
-2. **Data sources** — logs, git log, PRs, metrics, deployments
-3. **Investigate** — follow each lead autonomously, don't stop at first finding
-4. **Timeline** — build event timeline, mark probable root cause
-5. **Report** — structured report: problem, root cause, evidence, fix, prevention
-6. **Issue** — create GitHub Issue with the report
+1. **Collect** — exhaust all data sources before forming theories:
+   - Logs (all services, around the incident window)
+   - Git log / recent PRs / deployments
+   - Metrics, dashboards, alerts
+   - Messages: Slack, on-call pings, user reports
+   - Config changes, env diffs, infra changes
+   - Everything. Don't filter yet.
+
+2. **Reason** — build evidence list and timeline:
+   - List every finding from step 1
+   - Highlight anomalies: "this log line doesn't belong", "this metric spiked"
+   - Build timeline of events
+   - Form hypotheses linked to evidence
+
+3. **Investigate** — follow leads, verify root cause
+4. **Report** — structured report: problem, evidence, root cause, fix, prevention
+5. **Issue** — create GitHub Issue with the report
 
 ## Investigation Report Format (Mode 2)
 
