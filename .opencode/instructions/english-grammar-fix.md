@@ -1,5 +1,5 @@
 ---
-name: self-patch
+name: english-grammar-fix
 description: Auto-correct minor English grammar errors in AI responses for non-native speakers
 aliases: [grammar-fix, auto-correct]
 ---
