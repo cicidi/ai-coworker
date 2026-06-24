@@ -91,7 +91,7 @@ def import_opencode_session(session: dict, conn):
             if mtype in ("text", "reasoning") and text:
                 conn.execute(
                     "INSERT OR IGNORE INTO messages (session_id, seq, type, content, ts) VALUES (?, ?, ?, ?, ?)",
-                    (sid, seq, mtype, text[:8000], str(ts)),
+                    (sid, seq, mtype, text, str(ts)),
                 )
             elif mtype == "tool":
                 tool_name = obj.get("name", obj.get("tool", ""))
