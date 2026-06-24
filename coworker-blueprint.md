@@ -1,34 +1,50 @@
 # AI Coworker System — Blueprint
 
-> **Purpose:** Complete specification of the AI Coworker system. Give this to any LLM to recreate the entire system.
+> **Purpose:** Complete specification of the AI Coworker context management system. Give this to any LLM to recreate it.
 
-> **What is AI Coworker?** A Python CLI tool that adds skills, guardrails, and project context to your AI coding assistant (Claude Code, OpenCode, Gemini, Cursor). It auto-scans your project, generates config, and provides a structured 5-stage development workflow.
+> **What is AI Coworker?** A Python CLI tool that keeps your AI coding assistants aware of your projects, initiatives, and available skills. It auto-scans projects, injects managed context blocks into IDE configs, syncs skills from [skill-factory](https://github.com/cicidi/skill-factory), and tracks analytics.
+
+> **What it is NOT:** A development workflow tool. Skills for coding, testing, reviewing, debugging — those come from skill-factory, not ai-coworker.
 
 ---
 
 ## Table of Contents
 
-1. [Core Philosophy](#1-core-philosophy)
+1. [Core Purpose](#1-core-purpose)
 2. [Directory Structure](#2-directory-structure)
-3. [5-Stage Workflow](#3-5-stage-workflow)
-4. [Skill Catalog](#4-skill-catalog)
-5. [CLI Commands](#5-cli-commands)
-6. [Configuration Layer](#6-configuration-layer)
-7. [Guardrails](#7-guardrails)
-8. [Self-Healing](#8-self-healing)
-9. [Installer Specification](#9-installer-specification)
-10. [Example Configurations](#10-example-configurations)
+3. [Context Injection System](#3-context-injection-system)
+4. [Project Catalog](#4-project-catalog)
+5. [Initiative Management](#5-initiative-management)
+6. [CLI Commands](#6-cli-commands)
+7. [Skill Management](#7-skill-management)
+8. [Analytics](#8-analytics)
+9. [Configuration Layer](#9-configuration-layer)
+10. [IDE Adapters](#10-ide-adapters)
+11. [Installer Specification](#11-installer-specification)
 
 ---
 
-## 1. Core Philosophy
+## 1. Core Purpose
 
-> **"Human decides, AI executes."**
+AI Coworker solves three problems:
 
-1. **Human-centric** — When uncertain, ask. Never assume.
-2. **Rapid execution** — Once confirmed, move fast.
-3. **Self-healing** — Log every correction. Patterns become rules.
-4. **No documents** — All understanding lives in the conversation, not in PRD/FEATURE/DESIGN files.
+### Problem 1: Your AI doesn't know your project
+
+AI assistants start with zero context. They don't know what language, framework, or dependencies you use. They don't know your team's projects or how they relate.
+
+**Solution:** `coworker init` auto-scans → generates config → `coworker sync` injects context into IDE config files.
+
+### Problem 2: Context drifts across sessions
+
+You're working on initiative "skill-migration" across 3 projects. Your AI knows about project A but not B or C.
+
+**Solution:** `coworker initiative activate` injects the current initiative into your IDE config. Deactivate when done. Context follows you.
+
+### Problem 3: Skills are scattered
+
+Team skills live in skill-factory, personal tweaks in random folders, nothing is synced.
+
+**Solution:** `coworker sync` reads `coworker.yaml` → copies configured skills to all installed IDEs.
 
 ---
 
@@ -36,177 +52,352 @@
 
 ```
 ai-coworker/
-├── CLAUDE.md              # AI rules: pipeline, guardrails, conventions
+├── CLAUDE.md              # AI rules: conventions, guardrails
 ├── README.md              # Install and usage guide
 ├── TODO.md                # Development roadmap
+├── coworker-blueprint.md  # This document
 ├── pyproject.toml         # Python package config
-├── src/coworker/          # CLI tool source
+├── src/coworker/          # CLI tool
 │   ├── cli.py             # All CLI commands
 │   ├── config.py          # Config loading/merging
 │   ├── models.py          # Pydantic data models
-│   ├── adapters/          # IDE adapters (claude, opencode, gemini)
-│   ├── initiatives/       # Initiative manager
-│   ├── analytics/         # SQLite analytics DB + knowledge extraction
-│   └── dashboard/         # Analytics web dashboard
+│   ├── adapters/          # IDE adapters
+│   │   ├── claude.py      # Claude Code: settings, skills, context injection
+│   │   ├── opencode.py    # OpenCode: same
+│   │   └── gemini.py      # Gemini CLI: settings, skills
+│   ├── initiatives/       # Initiative lifecycle
+│   │   └── manager.py     # Create, activate, deactivate, inject context
+│   ├── analytics/         # Session tracking
+│   │   ├── db.py          # SQLite schema (sessions, messages, tool_calls)
+│   │   ├── import_data.py # Import JSONL → SQLite
+│   │   └── knowledge.py   # Knowledge extraction
+│   └── dashboard/         # Web dashboard
 ├── skills/                # CLI command skills (SKILL.md format)
-│   ├── init/              # → coworker init
-│   ├── analytics-*/       # → coworker analytics create-db / import / dashboard
-│   ├── initiative-*/      # → initiative activate / deactivate / list / show / remove
-│   ├── project-*/         # → project add / edit / list / remove / show / sync
-│   ├── skill-list/        # → coworker skill list
-│   └── status/            # → coworker status
-├── .cursor/rules/         # Cursor IDE instruction files (27 .md files)
-├── .opencode/instructions/ # OpenCode IDE instruction files
-├── .gemini/               # Gemini CLI instruction files
-├── .claude/commands/      # Claude Code instruction files
+├── .cursor/rules/         # IDE instruction files (synced to IDEs)
+├── .opencode/instructions/
+├── .gemini/
+├── .claude/commands/
 └── tests/python/          # Python tests
 ```
 
-**Key design decisions:**
-- `personal/` — gitignored, for per-developer local data
-- `docs/` — gitignored, not published
-- `global/` — deleted, config templates live in `cli.py` as Python strings
-- Skills live in TWO places: IDE directories (runtime) + skill-factory repo (source)
+---
+
+## 3. Context Injection System
+
+The heart of AI Coworker. Writes managed blocks into IDE config files without touching user content.
+
+### Block types
+
+**Static block** — always present, injected by `coworker project sync`:
+
+```markdown
+<!-- COWORKER:STATIC START -->
+## Project Catalog
+| Project | Path | Upstream | Downstream |
+|---------|------|----------|------------|
+
+## Docs Directory Structure
+Standard directory layout for docs/
+
+## Coworker Skills
+Usage guidance for coworker skills
+
+## Additional Behavioral Guidelines
+(From andrej-karpathy-skills, with attribution)
+<!-- COWORKER:STATIC END -->
+```
+
+**Initiative block** — injected only when an initiative is active:
+
+```markdown
+<!-- INITIATIVE:skill-migration START -->
+## Active Initiative: skill-migration
+> Migrate all skills from ai-coworker to skill-factory
+
+### Projects in scope
+| Project | Role | Branches |
+|---------|------|----------|
+
+### Key Decisions
+- 2026-06-23: Migrate personal-skills first (by cicidi)
+
+### Reference Docs
+- `docs/spec/skill-migration.md` — Migration plan
+
+### Links
+- [skill-factory](https://github.com/cicidi/skill-factory)
+<!-- INITIATIVE:skill-migration END -->
+```
+
+### Injection logic
+
+```
+coworker project sync
+  → reads project.yaml catalog
+  → builds static block
+  → if CLAUDE.md has COWORKER:STATIC markers: replace between them
+  → if not: append at end
+  → writes CLAUDE.md
+
+coworker initiative activate
+  → removes any existing INITIATIVE blocks
+  → appends new initiative block
+  → writes CLAUDE.md
+
+coworker initiative deactivate
+  → removes INITIATIVE blocks
+  → writes CLAUDE.md
+```
+
+### Supported IDEs
+
+| IDE | File modified | Adapter |
+|-----|--------------|---------|
+| Claude Code | `CLAUDE.md` | `claude.py` |
+| OpenCode | `.opencode/instructions.md` | `opencode.py` |
+| Gemini CLI | (not yet) | `gemini.py` |
+| Cursor | (not yet) | — |
+
+Static and initiative blocks are injected into both Claude Code and OpenCode configs.
 
 ---
 
-## 3. 5-Stage Workflow
+## 4. Project Catalog
 
-For any coding task, AI follows this pipeline:
+Tracks all projects you work on and their relationships.
+
+### Data model
+
+```yaml
+# project.yaml
+projects:
+  - name: ai-coworker
+    local_path: ~/ai-coworker
+    upstream: []
+    downstream:
+      - name: skill-factory
+    knowledge_pool:
+      - type: github
+        url: https://github.com/cicidi/ai-coworker
+    refs:
+      github:
+        - owner: cicidi
+          repo: ai-coworker
+```
+
+### Commands
 
 ```
-Stage 1: flow-understand  → Clarify requirements, confirm with user
-Stage 2: flow-split       → Break into parallel tasks, group in waves
-Stage 3: flow-build       → Implement via parallel subagents (one commit per task)
-Stage 4: flow-check       → Run tests + lint + guardrails in fresh session
-Stage 5: flow-ship        → Create PR with summary, request review
-```
-
-### Wave-based parallelism
-
-```
-Wave 1 (parallel)           Wave 2 (depends on Wave 1)
-├── Task 1.1: model.py      ├── Task 2.1: service.py
-├── Task 1.2: types.ts      └── Task 2.2: api.ts
-└── Task 1.3: config.py
-```
-
-**Rule:** No two tasks in the same wave modify the same file.
-
-### Subagent model (Stage 3)
-
-Each task spawns an isolated subagent:
-```
-Context: file to modify, what to implement, done condition
-Rules: implement ONLY this task, write tests, commit atomically
-Output: DONE with commit hash, or FAILED with reason
+coworker project add     → Interactive add with upstream/downstream
+coworker project edit    → Modify an entry
+coworker project list    → Show all tracked projects
+coworker project show    → Detail view of one project
+coworker project remove  → Delete from catalog
+coworker project sync    → Inject catalog into IDE configs
 ```
 
 ---
 
-## 4. Skill Catalog
+## 5. Initiative Management
 
-28 skills organized by function:
+Initiatives are cross-project pieces of work — features, migrations, refactors that span multiple repos.
 
-### flow-* — Development Pipeline
-| Skill | Stage | Description |
-|-------|-------|-------------|
-| `flow-understand` | 1 | Parse requirements, ask clarifying questions |
-| `flow-split` | 2 | Break into parallel tasks, group in waves |
-| `flow-build` | 3 | Execute via parallel subagents |
-| `flow-check` | 4 | Run tests, lint, guardrails |
-| `flow-ship` | 5 | Create PR, request review |
+### Data model
 
-### gate-* — Quality Gates
-| Skill | Checks |
-|-------|--------|
-| `gate-guardrails` | OWASP Top 10: no secrets, injection, hardcoded creds |
-| `gate-conventions` | Code style, naming, formatting |
-| `gate-review` | Anti-pattern detection |
-| `gate-tests` | Test coverage verification |
-| `gate-ship` | Review checkpoint enforcement |
+```yaml
+# .coworker/initiatives/skill-migration.yaml
+name: skill-migration
+description: Migrate all skills from ai-coworker to skill-factory
+status: active
+projects:
+  - name: ai-coworker
+    role: source
+    branches: [main]
+  - name: skill-factory
+    role: target
+    branches: [master]
+decisions:
+  - date: "2026-06-23"
+    decision: "Migrate personal-skills first"
+    rationale: "They're simpler"
+    by: cicidi
+links:
+  - url: https://github.com/cicidi/skill-factory
+    title: skill-factory repo
+reference_docs:
+  - path: docs/spec/skill-migration.md
+    title: Migration plan
+```
 
-### self-* — Self-Management
-| Skill | Purpose |
-|-------|---------|
-| `self-init` | Auto-scan project and generate config |
-| `self-heal` | Log correction traces for pattern analysis |
-| `self-analyze` | Analyze mistakes to generate rules |
-| `self-patch` | Auto-generate patches |
-| `self-strain` | Analyze strain sites (pain points) |
+### Lifecycle
 
-### bug-* — Debug & Issues
-| Skill | Purpose |
-|-------|---------|
-| `bug-report` | Report coworker bugs to GitHub |
-| `bug-create` | Create a GitHub issue |
-| `bug-hunt` | Debug an issue |
-| `bug-sleuth` | Investigate root cause |
+```
+coworker initiative start    → create + add projects + activate (one step)
+coworker initiative create   → just create the YAML
+coworker initiative activate → inject into IDE configs, mark ~/.coworker/initiatives/.active
+coworker initiative deactivate → remove from IDE configs
+coworker initiative edit     → modify YAML
+coworker initiative list     → show all
+coworker initiative show     → full detail
+coworker initiative remove   → delete YAML + deactivate
+```
 
-### doc-* — Document Operations
-| Skill | Purpose |
-|-------|---------|
-| `doc-merge` | Merge markdown docs preserving PROTECTED blocks |
-| `doc-protect` | Manage PROTECTED blocks |
-| `doc-review` | Request document review |
-
-### connect-* — Integrations
-| Skill | Service |
-|-------|---------|
-| `connect-github` | GitHub MCP |
-| `connect-slack` | Slack MCP |
-| `connect-discord` | Discord MCP |
-| `connect-telegram` | Telegram MCP |
-| `connect-gdrive` | Google Drive MCP |
+Active initiative is tracked in `~/.coworker/initiatives/.active`.
 
 ---
 
-## 5. CLI Commands
+## 6. CLI Commands
 
 ```
-coworker init                     # Auto-scan project, generate config + CLAUDE.md
-coworker sync                     # Sync skills to detected IDEs
-coworker status                   # Show global + project config status
+coworker init              # Auto-scan project, generate config + CLAUDE.md context
+coworker sync              # Sync config to all detected IDEs
+coworker status            # Show global + project config status
 
-coworker analytics create-db      # Initialize ~/.coworker/analytics/analytics.db
-coworker analytics import         # Import session JSONL into SQLite
-coworker analytics dashboard      # Start analytics web dashboard
+coworker analytics create-db    # Initialize ~/.coworker/analytics/analytics.db
+coworker analytics import       # Import session JSONL → SQLite
+coworker analytics dashboard    # Web dashboard on localhost
 
-coworker project add/edit/list/remove/show   # Manage project catalog
+coworker project add/edit/list/remove/show   # Project catalog
 coworker project sync                        # Inject catalog into IDE configs
 
-coworker initiative start         # Quick-start: create + activate
-coworker initiative create/edit   # Create or edit an initiative
-coworker initiative activate      # Activate (inject into IDE configs)
-coworker initiative deactivate    # Deactivate (remove from IDE configs)
-coworker initiative list/show     # List or view initiatives
-coworker initiative remove        # Permanently delete
+coworker initiative start      # Create + activate in one step
+coworker initiative create     # Create initiative YAML
+coworker initiative edit       # Edit initiative YAML
+coworker initiative activate   # Inject into IDE configs
+coworker initiative deactivate # Remove from IDE configs
+coworker initiative list       # List all
+coworker initiative show       # Show detail
+coworker initiative remove     # Delete permanently
 
-coworker skill list/new           # Manage skills
+coworker skill list            # List configured skills
+coworker skill new             # Scaffold new skill
 ```
 
 ### init behavior
 
-`coworker init` auto-scans the project:
+`coworker init` auto-scans the current directory:
 
 1. Reads `package.json` / `pyproject.toml` / `go.mod` / `Cargo.toml`
 2. Detects: language, framework, dependencies, test/lint commands
-3. Detects installed IDEs (Claude Code, OpenCode, Gemini, Cursor)
+3. Detects: installed IDEs (Claude Code, OpenCode, Gemini, Cursor)
 4. Shows summary → user confirms
-5. Generates `coworker.yaml` + `CLAUDE.md` Project Context section
+5. Creates `coworker.yaml`
+6. Adds/updates `CLAUDE.md` with `## Project Context` section
+
+Example output:
+```
+Project Scan: my-app
+  Language:      Node.js
+  Framework:     React, Express
+  Dependencies:  next, typescript, prisma...
+  Detected IDEs: claude, opencode
+  Test command:  npm test
+
+Create project config with these settings? [Y/n]:
+```
 
 ---
 
-## 6. Configuration Layer
+## 7. Skill Management
 
-Two config files merged at runtime:
+AI Coworker manages skill **distribution**, not skill **creation**. Skills are created and maintained in [skill-factory](https://github.com/cicidi/skill-factory).
+
+### Skill lifecycle
+
+```
+skill-factory          ai-coworker               IDE
+─────────────          ─────────────              ───
+skill-create  ──→  listed in coworker.yaml  ──→  .claude/commands/
+skill-edit    ──→  coworker sync           ──→  .cursor/rules/
+skill-import  ──→                          ──→  .opencode/instructions/
+                                              ──→  .gemini/
+```
+
+### Config example
+
+```yaml
+# coworker.yaml
+skills:
+  - name: flow-understand
+    path: ~/skill-factory/ai-coworker-skills/flow-understand/SKILL.md
+    enabled: true
+  - name: gate-guardrails
+    path: ~/skill-factory/ai-coworker-skills/gate-guardrails/SKILL.md
+    enabled: true
+```
+
+`coworker sync` copies each enabled skill to all detected IDE directories. The skill content (how to understand requirements, how to run guardrails) is defined in skill-factory — ai-coworker just distributes it.
+
+---
+
+## 8. Analytics
+
+Tracks AI session activity for insights and knowledge extraction.
+
+### Database schema
+
+```sql
+-- ~/.coworker/analytics/analytics.db
+CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    model TEXT,
+    cost REAL,
+    tokens_input INTEGER,
+    tokens_output INTEGER
+);
+
+CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT REFERENCES sessions(id),
+    role TEXT,
+    content TEXT,
+    timestamp TEXT
+);
+
+CREATE TABLE tool_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT REFERENCES sessions(id),
+    tool_name TEXT,
+    input TEXT,
+    output TEXT,
+    duration_ms INTEGER
+);
+
+CREATE TABLE knowledge (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    type TEXT,
+    session_id TEXT,
+    project TEXT,
+    skills TEXT,
+    summary TEXT,
+    evidence TEXT
+);
+```
+
+### Commands
+
+```
+coworker analytics create-db   → Initialize the SQLite database
+coworker analytics import      → Import OpenCode JSONL sessions
+coworker analytics dashboard   → Start web UI at http://localhost:8080
+```
+
+---
+
+## 9. Configuration Layer
 
 ### Global config — `~/.coworker/coworker.yaml`
+
 ```yaml
 version: "1"
 scope: global
 mcp: []
-skills: []
+skills:
+  - name: flow-understand
+    path: ~/skill-factory/ai-coworker-skills/flow-understand/SKILL.md
+    enabled: true
 permissions:
   allow:
     - Bash(git *)
@@ -217,140 +408,68 @@ claude:
 ```
 
 ### Project config — `./coworker.yaml`
+
 ```yaml
 version: "1"
 scope: project
-mcp: []
 skills: []
 permissions:
   allow: []
   deny: []
 ```
 
-Project permissions override global. Skills/MCP are merged.
+### Merge logic
 
-### CLAUDE.md Context Injection
-
-Two types of blocks are injected into `CLAUDE.md`:
-
-```
-<!-- COWORKER:STATIC START -->
-## Project Catalog         ← from project.yaml
-## Docs Directory Structure  ← auto-generated
-## Coworker Skills           ← usage guidance
-## Additional Behavioral Guidelines ← Karpathy rules (attributed)
-<!-- COWORKER:STATIC END -->
-```
-
-```
-<!-- INITIATIVE:{name} START -->
-## Active Initiative: {name}    ← from initiative YAML
-<!-- INITIATIVE:{name} END -->
-```
+1. Start with global config
+2. Project `permissions.allow` extends global `allow`
+3. Project `permissions.deny` overrides
+4. Project `skills` merged with global `skills`
+5. Project `claude`/`gemini`/`opencode` settings override global
 
 ---
 
-## 7. Guardrails
+## 10. IDE Adapters
 
-Auto-applied before every commit (OWASP Top 10):
+Each adapter handles two things:
+1. **Sync**: copy skills, write settings.json, configure permissions
+2. **Context injection**: write managed blocks into IDE config files
 
-- **A01** Broken Access Control — no auth bypass, all endpoints protected
-- **A02** Cryptographic Failures — no hardcoded secrets, use env vars
-- **A03** Injection — parameterized queries, no user input in shell/HTML
-- **A04** Insecure Design — validate inputs at boundaries
-- **A05** Security Misconfiguration — no .env in git, no debug in prod
-- **A06** Vulnerable Components — flag outdated deps
-- **A07** Authentication Failures — tokens in env vars only
-- **A08** Software Integrity — review dependency changes
-- **A09** Logging Failures — no PII/tokens in logs
-- **A10** SSRF — no server-side requests to user-provided URLs
-
-Git conventions enforced:
-- Branch naming: `feat/`, `fix/`, `chore/`, `docs/`, `refactor/`
-- Commits: Conventional Commits format
-- Never push to main/master — all changes through PR
-- Every PR references a GitHub Issue
+| Adapter | Sync target | Context injection target |
+|---------|------------|-------------------------|
+| `claude.py` | `~/.claude/skills/`, `settings.json` | `CLAUDE.md` |
+| `opencode.py` | `.opencode/`, `config.json` | `.opencode/instructions.md` |
+| `gemini.py` | `.gemini/`, `settings.json` | (not yet) |
 
 ---
 
-## 8. Self-Healing
-
-Three-phase feedback loop:
-
-1. **Trace** (`self-heal`) — On every user correction, log: what went wrong, what was fixed
-2. **Analyze** (`self-analyze`) — Periodically scan traces for patterns
-3. **Rule** — Convert patterns into new guardrails or skills
-
-Example:
-```
-Trace: AI used `git add .` and committed secrets
-→ Pattern: 3 occurrences in 2 weeks
-→ Rule: Add "never use git add ." to commit conventions skill
-```
-
----
-
-## 9. Installer Specification
+## 11. Installer Specification
 
 ### Dependencies
 - Python 3.10+
 - `click`, `rich`, `pyyaml`, `pydantic`
-- Optional: `uvicorn` (for analytics dashboard)
+- Optional: `uvicorn` (analytics dashboard)
 
 ### Install
+
 ```bash
-git clone https://github.com/cicidi/ai-coworker.git ~/ai-coworker
-cd ~/ai-coworker
+git clone https://github.com/cicidi/ai-coworker.git
+cd ai-coworker
 pip install --break-system-packages -e .
 ```
 
-### What install does
-1. Registers `coworker` CLI command
-2. No automatic DB setup (run `coworker analytics create-db` manually)
+### First run
 
-### What init does
-1. Scans project for language, framework, dependencies
-2. Detects installed IDEs
-3. Shows findings → user confirms
-4. Creates `coworker.yaml` and updates `CLAUDE.md`
-
-### What sync does
-1. Reads global + project `coworker.yaml`
-2. Copies skill files to each IDE's directory
-3. Syncs permissions and settings
-4. Injects project catalog into `CLAUDE.md`
-
----
-
-## 10. Example Configurations
-
-### Minimal project
-```yaml
-version: "1"
-scope: project
-permissions:
-  allow:
-    - Bash(git *)
-    - Read(*)
-    - Write(*)
+```bash
+coworker init        # Creates global + project config
+coworker sync        # Syncs skills to your IDEs
+coworker status      # Verify everything is set up
 ```
 
-### Full project with skills
-```yaml
-version: "1"
-scope: project
-skills:
-  - name: flow-understand
-    path: ~/ai-coworker/.cursor/rules/flow-understand.md
-    enabled: true
-  - name: gate-guardrails
-    path: ~/ai-coworker/.cursor/rules/gate-guardrails.md
-    enabled: true
-permissions:
-  allow:
-    - Bash(git *)
-    - Bash(npm *)
-    - Bash(pytest *)
-    - Read(*)
-    - Write(*)
-```
+### What gets created
+
+| Step | Creates |
+|------|---------|
+| `coworker init --global` | `~/.coworker/coworker.yaml`, `~/.coworker/skills/` |
+| `coworker init` (project) | `./coworker.yaml`, updates `CLAUDE.md` |
+| `coworker sync` | Copies skills to IDE dirs, writes settings |
+| `coworker analytics create-db` | `~/.coworker/analytics/analytics.db` |
