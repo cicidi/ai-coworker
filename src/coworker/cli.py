@@ -3,6 +3,7 @@ import json
 import sys
 from pathlib import Path
 
+import yaml
 import click
 from rich.console import Console
 from rich.table import Table
@@ -84,6 +85,23 @@ permissions:
 def main():
     """Coworker — unified AI dev environment for Claude Code, Gemini & OpenCode."""
     pass
+
+
+def _load_local_config() -> dict:
+    config_path = Path.cwd() / ".local_config.yaml"
+    if config_path.exists():
+        try:
+            return yaml.safe_load(config_path.read_text()) or {}
+        except yaml.YAMLError:
+            return {}
+    return {}
+
+
+def _save_local_config(updates: dict):
+    config_path = Path.cwd() / ".local_config.yaml"
+    existing = _load_local_config()
+    existing.update(updates)
+    config_path.write_text(yaml.dump(existing, default_flow_style=False, allow_unicode=True))
 
 
 def _scan_project() -> dict:
@@ -224,6 +242,19 @@ def init(is_global, is_project):
             console.print(f"[green]Created:[/green] CLAUDE.md")
 
         console.print("\n[bold green]Setup complete![/bold green] Run [cyan]coworker sync[/cyan] to apply.")
+
+        # Ask about session analysis
+        console.print("\n[bold]Session Analysis[/bold]")
+        console.print("Analyze AI sessions to extract reusable knowledge (SOPs, mistakes, insights).")
+        if click.confirm("Enable session analysis with DeepSeek Flash?", default=False):
+            key = click.prompt("DeepSeek API key", hide_input=True, default="", show_default=False)
+            if key:
+                _save_local_config({"analysis": {"provider": "deepseek", "api_key": key}})
+                console.print("[green]Session analysis enabled.[/green]")
+            else:
+                console.print("[yellow]No API key provided. Analysis disabled.[/yellow]")
+        else:
+            console.print("[dim]Session analysis disabled. Enable later in .local_config.yaml[/dim]")
 
 
 @main.command()
