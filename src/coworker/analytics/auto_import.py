@@ -11,7 +11,122 @@ HOME = Path.home()
 BASE = HOME / ".coworker" / "analytics"
 SESSIONS = BASE / "sessions"
 OPCODE_DB = HOME / ".local" / "share" / "opencode" / "opencode.db"
+CLAUDE_PROJECTS = HOME / ".claude" / "projects"
 POLL_INTERVAL = 1800  # 30 minutes
+
+
+def collect_claude_jsonl_sessions(conn) -> list[Path]:
+    """Find Claude Code JSONL session files not yet imported."""
+    if not CLAUDE_PROJECTS.exists():
+        return []
+    existing = set(
+        r[0] for r in conn.execute("SELECT id FROM sessions WHERE ide='claude-code'").fetchall()
+    )
+    new_files = []
+    for project_dir in sorted(CLAUDE_PROJECTS.iterdir()):
+        if not project_dir.is_dir():
+            continue
+        for jsonl_file in sorted(project_dir.glob("*.jsonl")):
+            sid = jsonl_file.stem
+            if sid not in existing:
+                new_files.append(jsonl_file)
+    return new_files
+
+
+def import_claude_jsonl_session(jsonl_file: Path, conn):
+    """Import a Claude Code JSONL session file."""
+    sid = jsonl_file.stem
+    lines = jsonl_file.read_text().strip().split("\n")
+    if not lines:
+        return
+
+    # Parse first/last lines for session metadata
+    created = None
+    model = ""
+    cwd = ""
+    project_name = jsonl_file.parent.name
+
+    for line in lines:
+        try:
+            obj = json.loads(line)
+            if obj.get("type") == "assistant" and not created:
+                created = obj.get("timestamp", "")
+                mi = obj.get("message", {})
+                if isinstance(mi, dict):
+                    model = mi.get("model", "")
+                elif isinstance(mi, str):
+                    try:
+                        mi2 = json.loads(mi.replace("'", '"'))
+                        model = mi2.get("model", "")
+                    except Exception:
+                        pass
+            if obj.get("cwd") and not cwd:
+                cwd = obj["cwd"]
+        except json.JSONDecodeError:
+            continue
+
+    conn.execute(
+        """INSERT OR REPLACE INTO sessions (id, ide, project, cwd, model, created_at)
+           VALUES (?, 'claude-code', ?, ?, ?, ?)""",
+        (sid, project_name, cwd, model, created or ""),
+    )
+
+    for seq, line in enumerate(lines):
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        msg_type = obj.get("type", "")
+        ts = obj.get("timestamp", "")
+        msg = obj.get("message", {})
+
+        if msg_type in ("user", "assistant"):
+            content = ""
+            if isinstance(msg, dict):
+                raw_content = msg.get("content", "")
+                if isinstance(raw_content, list):
+                    text_parts = []
+                    for block in raw_content:
+                        if isinstance(block, dict):
+                            if block.get("type") == "text":
+                                text_parts.append(block.get("text", ""))
+                            elif block.get("type") == "tool_use":
+                                # Store tool_use as tool_call
+                                tname = block.get("name", "")
+                                tinput = json.dumps(block.get("input", {}))[:4000]
+                                tcid = block.get("id", f"cc-{sid}-{seq}")
+                                conn.execute(
+                                    "INSERT OR IGNORE INTO tool_calls (session_id, call_id, tool, tool_type, args, seq_before, ts) VALUES (?, ?, ?, 'claude-code', ?, ?, ?)",
+                                    (sid, tcid, tname, tinput, seq, ts),
+                                )
+                                if tname == "Skill":
+                                    skill_name = block.get("input", {}).get("name", "")
+                                    if isinstance(skill_name, str) and skill_name:
+                                        conn.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (skill_name,))
+                    content = "\n".join(text_parts)
+                elif isinstance(raw_content, str):
+                    content = raw_content
+            elif isinstance(msg, str):
+                content = msg
+
+            if content:
+                role = msg_type
+                conn.execute(
+                    "INSERT OR IGNORE INTO messages (session_id, seq, type, content, ts) VALUES (?, ?, ?, ?, ?)",
+                    (sid, seq, role, content, ts),
+                )
+
+        elif msg_type == "result":
+            # Tool result
+            result_text = msg.get("output", msg.get("result", "")) if isinstance(msg, dict) else str(msg)
+            conn.execute(
+                "INSERT OR IGNORE INTO tool_calls (session_id, call_id, tool, tool_type, result, seq_after, ts) VALUES (?, ?, 'result', 'claude-code', ?, ?, ?)",
+                (sid, f"cc-result-{sid}-{seq}", str(result_text)[:4000], seq, ts),
+            )
+
+    _update_session_stats(conn, sid)
+    conn.commit()
 
 
 def get_last_imported_session(conn) -> str | None:
@@ -179,6 +294,18 @@ def run_once(verbose: bool = False) -> dict:
             if verbose:
                 print(f"  [claude] failed {sid}: {e}")
 
+    # --- Claude Code JSONL sessions (native session files) ---
+    jsonl_files = collect_claude_jsonl_sessions(conn)
+    for jsonl_file in jsonl_files:
+        try:
+            import_claude_jsonl_session(jsonl_file, conn)
+            stats["claude"] += 1
+            if verbose:
+                print(f"  [claude-jsonl] new {jsonl_file.stem}")
+        except Exception as e:
+            if verbose:
+                print(f"  [claude-jsonl] failed {jsonl_file.stem}: {e}")
+
     # --- OpenCode sessions ---
     opencode_sessions = collect_new_opencode_sessions(conn)
     for session in opencode_sessions:
@@ -198,7 +325,8 @@ def run_once(verbose: bool = False) -> dict:
 def run_daemon(interval: int = POLL_INTERVAL):
     """Run indefinitely, polling every `interval` seconds."""
     print(f"[daemon] Auto-import started (interval: {interval}s, {interval//60}min)")
-    print(f"[daemon] Claude sessions: {SESSIONS}")
+    print(f"[daemon] Claude hooks: {SESSIONS}")
+    print(f"[daemon] Claude sessions: {CLAUDE_PROJECTS}")
     print(f"[daemon] OpenCode DB: {OPCODE_DB}")
 
     while True:
