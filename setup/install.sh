@@ -135,7 +135,21 @@ mkdir -p "$CLAUDE_DIR"
 ok "Claude Code skills dir: $CLAUDE_DIR"
 
 # =============================================================================
-# Step 6 — List available skills from skill-factory
+# Step 6 — Deploy ai-coworker skills to OpenCode skill directory
+# =============================================================================
+OPENCODE_SKILLS_DIR="$HOME/.config/opencode/skills/ai-coworker"
+log "Deploying ai-coworker skills to OpenCode skill directory..."
+
+if [[ ! -d "$REPO_ROOT/skills" ]]; then
+  warn "No skills/ directory found in ai-coworker repo — skipping"
+else
+  mkdir -p "$OPENCODE_SKILLS_DIR"
+  rsync -a --delete "$REPO_ROOT/skills/" "$OPENCODE_SKILLS_DIR/"
+  ok "Deployed skills to $OPENCODE_SKILLS_DIR"
+fi
+
+# =============================================================================
+# Step 7 — List available skills from skill-factory
 # =============================================================================
 log "Loading available skills from skill-factory..."
 
@@ -170,7 +184,7 @@ else
 fi
 
 # =============================================================================
-# Step 7 — Skill selection
+# Step 8 — Skill selection
 # =============================================================================
 echo ""
 echo "Skill selection:"
@@ -210,7 +224,7 @@ case "$SKILL_CHOICE" in
 esac
 
 # =============================================================================
-# Step 8 — Always install coworker-meta-setup-coworker
+# Step 9 — Always install coworker-meta-setup-coworker
 # =============================================================================
 SETUP_SKILL_SRC="$REPO_ROOT/skills/coworker-meta-setup-coworker.md"
 if [[ -f "$SETUP_SKILL_SRC" ]]; then
@@ -221,7 +235,7 @@ else
 fi
 
 # =============================================================================
-# Step 9 — Install selected skills to Claude Code (primary)
+# Step 10 — Install selected skills to Claude Code (primary)
 # =============================================================================
 CREATED=0
 UPDATED=0
@@ -262,7 +276,7 @@ if [[ ${#SELECTED_SKILLS[@]} -gt 0 ]]; then
 fi
 
 # =============================================================================
-# Step 10 — OpenCode: symlink or copy
+# Step 11 — OpenCode: symlink or copy
 # =============================================================================
 if [[ -n "$OPENCODE_DIR" ]]; then
   echo ""
@@ -296,7 +310,7 @@ if [[ -n "$OPENCODE_DIR" ]]; then
 fi
 
 # =============================================================================
-# Step 11 — Symlink CLAUDE.md for OpenCode
+# Step 12 — Symlink CLAUDE.md for OpenCode
 # =============================================================================
 if [[ "$INSTALL_MODE" == "project" ]]; then
   CLAUDE_MD="$REPO_ROOT/CLAUDE.md"
@@ -307,7 +321,7 @@ if [[ "$INSTALL_MODE" == "project" ]]; then
 fi
 
 # =============================================================================
-# Step 12 — Update .gitignore (project mode)
+# Step 13 — Update .gitignore (project mode)
 # =============================================================================
 if [[ "$INSTALL_MODE" == "project" ]]; then
   GITIGNORE="$PROJECT_PATH/.gitignore"
@@ -318,7 +332,7 @@ if [[ "$INSTALL_MODE" == "project" ]]; then
 fi
 
 # =============================================================================
-# Step 13 — Analytics Listener Setup
+# Step 14 — Analytics Listener Setup
 # =============================================================================
 echo ""
 log "Setting up analytics listener..."
@@ -378,7 +392,7 @@ print('Analytics DB initialized')
 echo "Analytics listener setup complete."
 
 # =============================================================================
-# Step 14 — MCP config sync
+# Step 15 — MCP config sync
 # =============================================================================
 if command -v coworker &>/dev/null; then
   echo ""
