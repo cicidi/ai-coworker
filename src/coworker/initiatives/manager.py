@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 
 from ..config import (
+    GLOBAL_DIR,
+    INITIATIVES_DIR,
     load_initiative,
     save_initiative,
     list_initiatives,
@@ -21,6 +23,8 @@ from ..adapters.opencode import (
 
 KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
+ACTIVE_MARKER = INITIATIVES_DIR / ".active"
+
 
 class InitiativeManager:
 
@@ -30,7 +34,7 @@ class InitiativeManager:
     # ── CRUD ────────────────────────────────────────────────────────────
 
     def create(self, name: str, description: str = "") -> InitiativeConfig:
-        if initiative_exists(name, project_dir=self.project_dir):
+        if initiative_exists(name):
             raise FileExistsError(f"Initiative '{name}' already exists.")
         if not KEBAB_RE.match(name):
             raise ValueError(f"Name '{name}' must be kebab-case (e.g. 'auth-migration').")
@@ -41,11 +45,11 @@ class InitiativeManager:
             status="active",
             created=datetime.now().strftime("%Y-%m-%d"),
         )
-        save_initiative(config, project_dir=self.project_dir)
+        save_initiative(config)
         return config
 
     def edit(self, name: str, **updates) -> InitiativeConfig:
-        config = load_initiative(name, project_dir=self.project_dir)
+        config = load_initiative(name)
         if config is None:
             raise FileNotFoundError(f"Initiative '{name}' not found.")
 
@@ -53,29 +57,29 @@ class InitiativeManager:
             if hasattr(config, key):
                 setattr(config, key, value)
 
-        save_initiative(config, project_dir=self.project_dir)
+        save_initiative(config)
         return config
 
     def show(self, name: str) -> InitiativeConfig | None:
-        return load_initiative(name, project_dir=self.project_dir)
+        return load_initiative(name)
 
     def list_all(self) -> list[InitiativeConfig]:
-        return list_initiatives(project_dir=self.project_dir)
+        return list_initiatives()
 
     def remove(self, name: str) -> None:
-        if not initiative_exists(name, project_dir=self.project_dir):
+        if not initiative_exists(name):
             raise FileNotFoundError(f"Initiative '{name}' not found.")
 
         if self.active_name() == name:
             self.deactivate()
 
-        path = self.project_dir / ".coworker" / "initiatives" / f"{name}.yaml"
+        path = INITIATIVES_DIR / f"{name}.yaml"
         path.unlink()
 
     # ── Activation ──────────────────────────────────────────────────────
 
     def activate(self, name: str) -> list[str]:
-        config = load_initiative(name, project_dir=self.project_dir)
+        config = load_initiative(name)
         if config is None:
             raise FileNotFoundError(f"Initiative '{name}' not found.")
 
@@ -88,8 +92,7 @@ class InitiativeManager:
             except Exception:
                 pass
 
-        marker_file = self.project_dir / ".coworker" / "initiatives" / ".active"
-        marker_file.write_text(name)
+        ACTIVE_MARKER.write_text(name)
         actions.append(f"Activated initiative '{name}'")
         return actions
 
@@ -107,9 +110,8 @@ class InitiativeManager:
             except Exception:
                 pass
 
-        marker_file = self.project_dir / ".coworker" / "initiatives" / ".active"
-        if marker_file.exists():
-            marker_file.unlink()
+        if ACTIVE_MARKER.exists():
+            ACTIVE_MARKER.unlink()
 
         if had_effect:
             actions.append("Deactivated current initiative")
@@ -118,9 +120,8 @@ class InitiativeManager:
         return actions
 
     def active_name(self) -> str | None:
-        marker_file = self.project_dir / ".coworker" / "initiatives" / ".active"
-        if marker_file.exists():
-            return marker_file.read_text().strip()
+        if ACTIVE_MARKER.exists():
+            return ACTIVE_MARKER.read_text().strip()
         return None
 
     def archive(self, name: str) -> InitiativeConfig:

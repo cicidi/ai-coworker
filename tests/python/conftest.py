@@ -35,3 +35,20 @@ def temp_claude_md():
 def temp_project_dir():
     with tempfile.TemporaryDirectory() as tmp:
         yield Path(tmp)
+
+
+@pytest.fixture
+def temp_initiatives_dir(monkeypatch, tmp_path):
+    """Redirect INITIATIVES_DIR to a temp directory for isolated tests."""
+    import coworker.config as cfg
+    init_dir = tmp_path / "initiatives"
+    init_dir.mkdir()
+    monkeypatch.setattr(cfg, "INITIATIVES_DIR", init_dir)
+    monkeypatch.setattr(
+        "coworker.initiatives.manager.INITIATIVES_DIR", init_dir
+    )
+    monkeypatch.setattr(
+        "coworker.initiatives.manager.ACTIVE_MARKER",
+        init_dir / ".active",
+    )
+    yield init_dir

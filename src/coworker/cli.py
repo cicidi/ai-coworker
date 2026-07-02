@@ -596,7 +596,7 @@ def initiative_start(name, description, proj_dir, role, branches):
         return
 
     if proj_dir:
-        config = load_initiative(name, project_dir=pd)
+        config = load_initiative(name)
         if config and not any(p.name == proj_dir for p in config.projects):
             branch_list = [b.strip() for b in branches.split(",") if b.strip()]
             config.projects.append(
@@ -606,7 +606,7 @@ def initiative_start(name, description, proj_dir, role, branches):
                     branches=branch_list,
                 )
             )
-            save_initiative(config, project_dir=pd)
+            save_initiative(config)
 
     try:
         actions = mgr.activate(name)
@@ -626,7 +626,7 @@ def initiative_create(name, description, proj_dir):
     mgr = InitiativeManager(project_dir=pd)
     try:
         mgr.create(name, description)
-        console.print(f"[green]Created initiative '{name}' in {pd}[/green]")
+        console.print(f"[green]Created initiative '{name}'[/green]")
     except FileExistsError as e:
         console.print(f"[red]{e}[/red]")
 
@@ -643,7 +643,7 @@ def initiative_create(name, description, proj_dir):
 def initiative_edit(name, proj_dir, description, add_proj, add_link_spec, add_decision_spec, add_doc_spec, do_archive):
     """Edit an existing initiative."""
     pd = Path(proj_dir) if proj_dir else Path.cwd()
-    config = load_initiative(name, project_dir=pd)
+    config = load_initiative(name)
     if config is None:
         console.print(f"[red]Initiative '{name}' not found.[/red]")
         return
@@ -700,7 +700,7 @@ def initiative_edit(name, proj_dir, description, add_proj, add_link_spec, add_de
             )
         )
 
-    save_initiative(config, project_dir=pd)
+    save_initiative(config)
     console.print(f"[green]Updated initiative '{name}'.[/green]")
 
 
@@ -714,10 +714,10 @@ def initiative_list(proj_dir, verbose):
     active = mgr.active_name()
     initiatives = mgr.list_all()
     if not initiatives:
-        console.print(f"[dim]No initiatives in {pd}. Use 'coworker initiative create'.[/dim]")
+        console.print(f"[dim]No initiatives found. Use 'coworker initiative create'.[/dim]")
         return
 
-    table = Table(title=f"Initiatives ({pd})")
+    table = Table(title="Initiatives")
     table.add_column("Name", style="cyan")
     table.add_column("Status")
     table.add_column("Active")
@@ -741,8 +741,7 @@ def initiative_list(proj_dir, verbose):
 @click.option("--project", "-p", "proj_dir", default=None, help="Project directory (default: current)")
 def initiative_show(name, proj_dir):
     """Show full initiative config."""
-    pd = Path(proj_dir) if proj_dir else Path.cwd()
-    config = load_initiative(name, project_dir=pd)
+    config = load_initiative(name)
     if config is None:
         console.print(f"[red]Initiative '{name}' not found.[/red]")
         return

@@ -36,28 +36,27 @@ class TestProjectCatalogConfig:
 
 
 class TestInitiativeConfig:
-    def test_save_and_load(self, temp_project_dir):
+    def test_save_and_load(self, temp_initiatives_dir):
         cfg.save_initiative(
             InitiativeConfig(name="test-init", description="Test"),
-            project_dir=temp_project_dir,
         )
-        loaded = cfg.load_initiative("test-init", project_dir=temp_project_dir)
+        loaded = cfg.load_initiative("test-init")
         assert loaded is not None
         assert loaded.name == "test-init"
         assert loaded.description == "Test"
 
-    def test_initiative_exists(self, temp_project_dir):
-        assert not cfg.initiative_exists("test-init", project_dir=temp_project_dir)
-        cfg.save_initiative(InitiativeConfig(name="test-init"), project_dir=temp_project_dir)
-        assert cfg.initiative_exists("test-init", project_dir=temp_project_dir)
+    def test_initiative_exists(self, temp_initiatives_dir):
+        assert not cfg.initiative_exists("test-init")
+        cfg.save_initiative(InitiativeConfig(name="test-init"))
+        assert cfg.initiative_exists("test-init")
 
-    def test_list_initiatives(self, temp_project_dir):
-        cfg.save_initiative(InitiativeConfig(name="init-a"), project_dir=temp_project_dir)
-        cfg.save_initiative(InitiativeConfig(name="init-b"), project_dir=temp_project_dir)
-        results = cfg.list_initiatives(project_dir=temp_project_dir)
+    def test_list_initiatives(self, temp_initiatives_dir):
+        cfg.save_initiative(InitiativeConfig(name="init-a"))
+        cfg.save_initiative(InitiativeConfig(name="init-b"))
+        results = cfg.list_initiatives()
         assert len(results) == 2
         names = {i.name for i in results}
         assert names == {"init-a", "init-b"}
 
-    def test_load_nonexistent(self, temp_project_dir):
-        assert cfg.load_initiative("does-not-exist", project_dir=temp_project_dir) is None
+    def test_load_nonexistent(self, temp_initiatives_dir):
+        assert cfg.load_initiative("does-not-exist") is None

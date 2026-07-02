@@ -102,21 +102,21 @@ def save_project_catalog(catalog: ProjectCatalog) -> None:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
 
-# ── Initiative (project-scoped) ──────────────────────────────────────────────
+# ── Initiative (global) ──────────────────────────────────────────────────────
 
 from .models import InitiativeConfig
 
-
-def _initiatives_dir(project_dir: Path | None = None) -> Path:
-    p = Path(project_dir) if project_dir else Path.cwd()
-    return p / ".coworker" / "initiatives"
+INITIATIVES_DIR = GLOBAL_DIR / "initiatives"
 
 
-def list_initiatives(project_dir: Path | None = None) -> list[InitiativeConfig]:
-    d = _initiatives_dir(project_dir)
+def _initiatives_dir() -> Path:
+    INITIATIVES_DIR.mkdir(parents=True, exist_ok=True)
+    return INITIATIVES_DIR
+
+
+def list_initiatives() -> list[InitiativeConfig]:
+    d = _initiatives_dir()
     results = []
-    if not d.exists():
-        return results
     for f in sorted(d.glob("*.yaml")):
         try:
             with open(f) as fh:
@@ -129,8 +129,8 @@ def list_initiatives(project_dir: Path | None = None) -> list[InitiativeConfig]:
     return results
 
 
-def load_initiative(name: str, project_dir: Path | None = None) -> InitiativeConfig | None:
-    d = _initiatives_dir(project_dir)
+def load_initiative(name: str) -> InitiativeConfig | None:
+    d = _initiatives_dir()
     path = d / f"{name}.yaml"
     if not path.exists():
         return None
@@ -139,18 +139,17 @@ def load_initiative(name: str, project_dir: Path | None = None) -> InitiativeCon
     return InitiativeConfig(**data)
 
 
-def save_initiative(config: InitiativeConfig, project_dir: Path | None = None) -> None:
-    d = _initiatives_dir(project_dir)
-    d.mkdir(parents=True, exist_ok=True)
+def save_initiative(config: InitiativeConfig) -> None:
+    d = _initiatives_dir()
     data = config.model_dump(exclude_none=True)
     path = d / f"{config.name}.yaml"
     with open(path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
 
-def initiative_path(name: str, project_dir: Path | None = None) -> Path:
-    return _initiatives_dir(project_dir) / f"{name}.yaml"
+def initiative_path(name: str) -> Path:
+    return _initiatives_dir() / f"{name}.yaml"
 
 
-def initiative_exists(name: str, project_dir: Path | None = None) -> bool:
-    return initiative_path(name, project_dir).exists()
+def initiative_exists(name: str) -> bool:
+    return initiative_path(name).exists()

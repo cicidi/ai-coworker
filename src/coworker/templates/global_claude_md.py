@@ -73,6 +73,14 @@ Before implementing:
 **Flag when a task needs a stronger model.**
 
 - If the current task would benefit from a more capable LLM, say so and recommend an upgrade.
+
+## 9. Fix ai-coworker Itself
+
+**When user asks to fix an issue and it's in ai-coworker itself, invoke the `ai-coworker-fix` skill.**
+
+- Analyze: is the issue in ai-coworker source code (not just usage/config)?
+- If yes: edit ai-coworker source files, run tests, commit, push, then invoke `ai-coworker-upgrade` to distribute.
+- Dogfood: the fix workflow applies ai-coworker's own tools to itself.
 """
 
 
