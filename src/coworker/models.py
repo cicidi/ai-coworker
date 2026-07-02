@@ -130,6 +130,10 @@ class ReferenceDoc(BaseModel):
 class InitiativeConfig(BaseModel):
     name: str
     description: str = ""
+    goal: str = ""
+    approach: str = ""
+    testing: str = ""
+    recommended_skills: list[str] = Field(default_factory=list)
     status: str = "active"
     created: str = ""
     projects: list[InitiativeProjectRef] = Field(default_factory=list)

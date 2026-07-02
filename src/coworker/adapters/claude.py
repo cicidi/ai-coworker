@@ -22,6 +22,12 @@ def _resolve_claude_md(project_dir: Path | None) -> Path:
     return Path.cwd() / "CLAUDE.md"
 
 
+def _resolve_local_md(project_dir: Path | None) -> Path:
+    if project_dir:
+        return project_dir / "CLAUDE.local.md"
+    return Path.cwd() / "CLAUDE.local.md"
+
+
 def _replace_or_append_block(
     content: str, start: str, end: str, new_block: str
 ) -> str:
@@ -73,6 +79,17 @@ def sync(config: CoworkerConfig, project_dir: Path | None = None) -> list[str]:
                 entry["env"] = server.env
             mcp_servers[server.name] = entry
         existing["mcpServers"] = mcp_servers
+
+    # apply state-update hook (runs coworker state-update on Stop)
+    existing.setdefault("hooks", {})
+    stop_hooks = existing["hooks"].get("Stop", [])
+    state_update_hook = {
+        "type": "command",
+        "command": "coworker state-update"
+    }
+    if not any(h.get("command") == "coworker state-update" for h in stop_hooks):
+        stop_hooks.append(state_update_hook)
+        existing["hooks"]["Stop"] = stop_hooks
 
     with open(settings_path, "w") as f:
         json.dump(existing, f, indent=2)
@@ -129,30 +146,42 @@ def inject_initiative(
 ) -> list[str]:
     actions = []
     block = _build_initiative_block(config)
-    target = _resolve_claude_md(project_dir)
+    target = _resolve_local_md(project_dir)
 
-    content = target.read_text() if target.exists() else ""
-    content = _remove_all_initiative_blocks(content)
-    content = content.rstrip() + "\n\n" + block + "\n"
+    if target.exists():
+        content = target.read_text()
+    else:
+        from ..templates.local_claude_md import generate_local_claude_md
+        content = generate_local_claude_md()
 
+    from ..templates.local_claude_md import inject_initiative_into_local_md
+    updated = inject_initiative_into_local_md(content, block)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content)
+    target.write_text(updated)
     actions.append(f"injected initiative '{config.name}' into {target.name}")
     return actions
 
 
 def remove_initiative(project_dir: Path | None = None) -> list[str]:
     actions = []
-    target = _resolve_claude_md(project_dir)
+    target = _resolve_local_md(project_dir)
     if not target.exists():
-        actions.append("no CLAUDE.md found, nothing to remove")
+        actions.append("no CLAUDE.local.md found, nothing to remove")
         return actions
 
     content = target.read_text()
-    new_content = _remove_all_initiative_blocks(content)
-    if new_content != content:
-        target.write_text(new_content)
-        actions.append(f"removed initiative context from {target.name}")
+    name = None
+    match = re.search(r"<!-- INITIATIVE:(\S+) START -->", content)
+    if match:
+        name = match.group(1)
+    if name:
+        from ..templates.local_claude_md import remove_initiative_from_local_md
+        updated = remove_initiative_from_local_md(content, name)
+        if updated != content:
+            target.write_text(updated)
+            actions.append(f"removed initiative '{name}' from {target.name}")
+        else:
+            actions.append(f"no initiative in {target.name}")
     else:
         actions.append(f"no initiative in {target.name}")
     return actions
@@ -298,6 +327,29 @@ def _build_initiative_block(config: InitiativeConfig) -> str:
     lines = [start, f"## Active Initiative: {config.name}", ""]
     if config.description:
         lines.append(f"> {config.description}")
+        lines.append("")
+
+    if config.goal:
+        lines.append("### Goal")
+        lines.append(config.goal)
+        lines.append("")
+
+    if config.approach:
+        lines.append("### Approach")
+        lines.append(config.approach)
+        lines.append("")
+
+    if config.testing:
+        lines.append("### Testing")
+        lines.append(config.testing)
+        lines.append("")
+
+    if config.recommended_skills:
+        lines.append("### Recommended Skills")
+        lines.append("_User-reviewed skills for this initiative. Invoke when relevant._")
+        lines.append("")
+        for skill in config.recommended_skills:
+            lines.append(f"- `{skill}`")
         lines.append("")
 
     if config.projects:

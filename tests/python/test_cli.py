@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+import pytest
 import yaml
 from click.testing import CliRunner
 
@@ -56,66 +57,28 @@ class TestProjectList:
         assert has_table_or_msg, f"Unexpected output: {result.output}"
 
 
-class TestConfigConventions:
-    def test_local_config_exists(self):
-        config_path = Path(__file__).parent.parent.parent / ".local_config.yaml"
-        assert config_path.exists(), f"{config_path} does not exist"
-
-    def test_local_config_valid_yaml(self):
-        config_path = Path(__file__).parent.parent.parent / ".local_config.yaml"
-        content = config_path.read_text()
-        data = yaml.safe_load(content)
-        assert data is not None, "YAML file is empty or invalid"
-
-    def test_local_config_has_required_keys(self):
-        config_path = Path(__file__).parent.parent.parent / ".local_config.yaml"
-        data = yaml.safe_load(config_path.read_text())
-        assert "identity" in data, "Missing 'identity' section"
-        identity = data["identity"]
-        assert "username" in identity, "Missing identity.username"
-        assert "project" in identity, "Missing identity.project"
-        assert identity["username"] != "", "username must not be empty"
-        assert identity["project"] != "", "project must not be empty"
-
-    def test_local_config_docs_section_valid(self):
-        config_path = Path(__file__).parent.parent.parent / ".local_config.yaml"
-        data = yaml.safe_load(config_path.read_text())
-        if "docs" in data:
-            docs = data["docs"]
-            root = Path(__file__).parent.parent.parent
-            if "prd" in docs:
-                prd_path = root / docs["prd"]
-                assert prd_path.exists(), f"PRD path not found: {prd_path}"
-            if "feature" in docs:
-                feature_path = root / docs["feature"]
-                assert feature_path.exists(), f"Feature path not found: {feature_path}"
-
-    def test_local_config_github_section(self):
-        config_path = Path(__file__).parent.parent.parent / ".local_config.yaml"
-        data = yaml.safe_load(config_path.read_text())
-        assert "github" in data, "Missing 'github' section"
-        assert "repo" in data["github"], "Missing github.repo"
-        assert data["github"]["repo"] == "cicidi/ai-coworker"
-
-
 class TestSkillReferences:
     def test_skill_references_valid(self):
         root = Path(__file__).parent.parent.parent
-        claude_md = root / "CLAUDE.md"
-        content = claude_md.read_text()
+        local_md = root / "CLAUDE.local.md"
+        # Skills are auto-detected and written to CLAUDE.local.md
+        # If local.md doesn't exist yet (fresh install), that's OK
+        if not local_md.exists():
+            pytest.skip("CLAUDE.local.md not generated yet — run coworker init")
+        content = local_md.read_text()
 
         skill_names = set()
         for line in content.splitlines():
-            if "skill-create" in line:
+            if "skill-create" in line or "ai-coworker-skill-create" in line:
                 skill_names.add("skill-create")
-            if "skill-edit" in line:
+            if "skill-edit" in line or "ai-coworker-skill-edit" in line:
                 skill_names.add("skill-edit")
-            if "self-heal" in line:
+            if "self-heal" in line or "ai-coworker-self-heal" in line:
                 skill_names.add("self-heal")
-            if "self-analyze" in line:
+            if "self-analyze" in line or "ai-coworker-self-analyze" in line:
                 skill_names.add("self-analyze")
 
-        assert len(skill_names) > 0, "No skill references found in CLAUDE.md"
+        assert len(skill_names) > 0, "No skill references found in CLAUDE.local.md"
 
         skills_dir = root / "skills"
         skill_factory_skills = (

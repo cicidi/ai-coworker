@@ -1,6 +1,5 @@
 # Private data only — skills are public
 personal/
-.local_config.yaml
 .env
 *.local
 .DS_Store
@@ -16,8 +15,10 @@ GEMINI.md
 .worktrees/
 .superpowers/
 .idea/
-docs/
 global/
 .mcp.json
 .self-healing/
 .claude/hooks/
+
+CLAUDE.local.md
+docs/state-*.md

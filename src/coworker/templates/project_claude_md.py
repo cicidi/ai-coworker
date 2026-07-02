@@ -1,18 +1,15 @@
-# ai-coworker — CLAUDE.md
+# src/coworker/templates/project_claude_md.py
 
-
-
-<!-- PROTECTED:CRITICAL-RULES -->
-
-## Local Override
+LOCAL_OVERRIDE = """## Local Override
 
 CRITICAL: If `CLAUDE.local.md` exists in this project root, use Read tool to load it now before doing anything else.
 - Claude Code: natively auto-loads this file
 - OpenCode: must use Read tool explicitly
 
 Contains personal working context — active initiative, task state, config paths, workflow preferences, available skills.
+"""
 
-## Mandatory Guardrails
+GUARDRAILS = """## Mandatory Guardrails
 
 ALL team members must follow these. No exceptions.
 
@@ -36,15 +33,23 @@ ALL team members must follow these. No exceptions.
 - No `TODO` without a linked GitHub issue
 - Don't modify PROTECTED blocks (`<!-- PROTECTED -->` to `<!-- END PROTECTED -->`)
 - Don't fabricate information — ask when uncertain
+"""
 
-## Compaction & State Persistence
+AUTO_MEMORY = """## Auto Memory
+
+- Read this CLAUDE.md first (upfront rules), then check auto-memory for past learnings
+- Conflict: upfront rules override auto-memory. Never let auto-memory write back into CLAUDE.md
+"""
+
+COMPACTION = """## Compaction & State Persistence
 
 1. **Save on compaction / session end**: A hook runs `coworker state-update` on Stop. State file path is in `CLAUDE.local.md`.
 2. **Manual milestone save**: Run `coworker state-update -s "what I finished"` after completing a milestone.
 3. **After compaction**: CLAUDE.md is re-injected but prior conversation is gone. Re-read `docs/state-{task}.md` and CLAUDE.local.md. Re-run the Context Self-Assessment Checklist.
 4. **Compact early**: Write state at 50-70% of context window — before model performance degrades.
+"""
 
-## Context Management
+CONTEXT_MGMT = """## Context Management
 
 MANDATORY: Before starting any non-trivial task, run this checklist:
 
@@ -64,8 +69,9 @@ MANDATORY: Before starting any non-trivial task, run this checklist:
 | Current workflow, skills in use | `CLAUDE.local.md` | Changes per session |
 | Initiative context, reference docs | `CLAUDE.local.md` | Injected by coworker |
 | Work-in-progress, temp artifacts | `CLAUDE.local.md` or `docs/state-*.md` | Discardable after completion |
+"""
 
-## Workflow Selection
+WORKFLOW_HEURISTICS = """## Workflow Selection
 
 For every new task, scan these characteristics and decide:
 
@@ -83,37 +89,78 @@ For every new task, scan these characteristics and decide:
 **Decision logic**: If requirements AND scope AND risk are all clear/small/low → auto. Otherwise → suggest + confirm.
 
 **Reality check**: These are heuristics, not iron laws. For reversible ops (reading files, `ls`, `grep`, `git status`) just proceed. Don't overthink trivial work.
+"""
 
-## Auto Memory
+SKILL_REFS = """## Available Skills
 
-- Read this CLAUDE.md first (upfront rules), then check auto-memory for past learnings
-- Conflict: upfront rules override auto-memory. Never let auto-memory write back into CLAUDE.md
-
-<!-- END PROTECTED:CRITICAL-RULES -->
-
-
-
-## Project Identity
-
-
-
-Repo: git@github.com:cicidi/ai-coworker.git
+Invoke a skill when its description matches the task. Do not invoke blindly — only when relevant.
+- `brainstorming`: creative/design work, feature exploration, spec writing
+- `TDD` / `auto-tdd`: test-first development, red-green-refactor
+- `bug-hunt`: systematic debugging, hypothesis → test → confirm
+- `commit`: conventional commits, git conventions
+- `self-heal`: log corrections, self-analyze: find patterns
+- `doc-*`: documentation create, merge, protect
+"""
 
 
+def generate_project_claude_md(
+    project_name: str = "",
+    language: str = "",
+    framework: str = "",
+    package_manager: str = "",
+    build_cmd: str = "",
+    lint_cmd: str = "",
+    test_cmd: str = "",
+    ides: str = "claude, opencode",
+    repo: str = "",
+    branch: str = "main",
+    relationships: str = "",
+    doc_map: str = "",
+    team_links: str = "",
+) -> str:
+    """Generate canonical Project CLAUDE.md."""
+    title = f"# {project_name or 'Project'} — CLAUDE.md" if project_name else "# Project CLAUDE.md"
 
-## Project Relationships
+    identity_lines = []
+    if repo:
+        identity_lines.append(f"Repo: {repo}")
+    identity = "\n".join(identity_lines) if identity_lines else ""
 
-_(none configured)_
+    rel_section = (
+        "## Project Relationships\n\n"
+        + (relationships or "_(none configured)_")
+    )
 
+    knowledge = (
+        "## Knowledge Repo\n\n"
+        + (doc_map or "_(run `coworker init` to scan docs/ structure)_")
+    )
 
+    team_section = (
+        "## Team Links\n\n"
+        + (team_links or "_(none configured — add shared wikis, Slack channels, design docs)_")
+    )
 
-## Knowledge Repo
-
-- Specs: `docs/specs/`
-- Discussions: `docs/discussion/`
-
-
-
-## Team Links
-
-_(none configured — add shared wikis, Slack channels, design docs)_
+    parts = [
+        title,
+        "",
+        "<!-- PROTECTED:CRITICAL-RULES -->",
+        LOCAL_OVERRIDE.strip(),
+        GUARDRAILS.strip(),
+        COMPACTION.strip(),
+        CONTEXT_MGMT.strip(),
+        WORKFLOW_HEURISTICS.strip(),
+        AUTO_MEMORY.strip(),
+        "<!-- END PROTECTED:CRITICAL-RULES -->",
+        "",
+        "## Project Identity",
+        "",
+        identity.strip() if identity else "_Repo URL auto-discovered by AI._",
+        "",
+        rel_section.strip(),
+        "",
+        knowledge.strip(),
+        "",
+        team_section.strip(),
+    ]
+    return "\n\n".join(parts)

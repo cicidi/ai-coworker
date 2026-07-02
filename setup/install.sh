@@ -61,13 +61,12 @@ echo ""
 # =============================================================================
 log "Checking global CLAUDE.md..."
 
-CLAUDE_MD_CONTENT='# Global instructions for all projects
-
-## Question Requirement
-
-For every request the user makes, ask 1-3 clarifying questions before acting. This ensures alignment and avoids wasted work. Questions should focus on scope, constraints, priorities, and success criteria.
-
-Skip questions if confident ≥90% that the request is unambiguous.'
+CLAUDE_MD_CONTENT=$(python3 -c "
+import sys
+sys.path.insert(0, '$REPO_ROOT')
+from src.coworker.templates.global_claude_md import generate_global_claude_md
+print(generate_global_claude_md())
+")
 
 if [[ -f "$GLOBAL_CLAUDE_MD" ]]; then
   ok "Global CLAUDE.md already exists at $GLOBAL_CLAUDE_MD"
@@ -359,10 +358,10 @@ python3 -c "
 import json
 with open('$CLAUDE_SETTINGS') as f: cfg = json.load(f)
 cfg.setdefault('hooks', {})
-cfg['hooks']['UserPromptSubmit'] = [{'command': '$HOME/.coworker/analytics/hooks/on-user-prompt.sh'}]
-cfg['hooks']['PreToolUse'] = [{'command': '$HOME/.coworker/analytics/hooks/on-pre-tool.sh'}]
-cfg['hooks']['PostToolUse'] = [{'command': '$HOME/.coworker/analytics/hooks/on-post-tool.sh'}]
-cfg['hooks']['Stop'] = [{'command': '$HOME/.coworker/analytics/hooks/on-stop.sh'}]
+cfg['hooks']['UserPromptSubmit'] = [{'matcher': '', 'hooks': [{'type': 'command', 'command': '$HOME/.coworker/analytics/hooks/on-user-prompt.sh'}]}]
+cfg['hooks']['PreToolUse'] = [{'matcher': '', 'hooks': [{'type': 'command', 'command': '$HOME/.coworker/analytics/hooks/on-pre-tool.sh'}]}]
+cfg['hooks']['PostToolUse'] = [{'matcher': '', 'hooks': [{'type': 'command', 'command': '$HOME/.coworker/analytics/hooks/on-post-tool.sh'}]}]
+cfg['hooks']['Stop'] = [{'matcher': '', 'hooks': [{'type': 'command', 'command': '$HOME/.coworker/analytics/hooks/on-stop.sh'}]}]
 with open('$CLAUDE_SETTINGS', 'w') as f: json.dump(cfg, f, indent=2)
 " 2>/dev/null && ok "Claude Code hooks configured" || warn "Failed to configure Claude Code hooks"
 

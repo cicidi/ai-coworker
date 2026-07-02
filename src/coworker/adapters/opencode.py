@@ -48,6 +48,15 @@ def sync(config: CoworkerConfig, project_dir: Path | None = None) -> list[str]:
         json.dump(existing, f, indent=2)
     actions.append(f"updated {config_path}")
 
+    # Add state-update permission
+    existing.setdefault("permission", {})
+    bash_perms = existing["permission"].get("bash", {})
+    if isinstance(bash_perms, dict):
+        bash_perms["coworker *"] = "allow"
+        existing["permission"]["bash"] = bash_perms
+        with open(config_path, "w") as f:
+            json.dump(existing, f, indent=2)
+
     return actions
 
 
@@ -81,31 +90,10 @@ def inject_static_context(
 def inject_initiative(
     config: InitiativeConfig, project_dir: Path | None = None
 ) -> list[str]:
-    from .claude import _build_initiative_block, _remove_all_initiative_blocks
-    actions = []
-    block = _build_initiative_block(config)
-    target = _resolve_instructions_md(project_dir)
-
-    content = target.read_text() if target.exists() else ""
-    content = _remove_all_initiative_blocks(content)
-    content = content.rstrip() + "\n\n" + block + "\n"
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content)
-    actions.append(f"injected initiative '{config.name}' into {target.name}")
-    return actions
+    from .claude import inject_initiative as claude_inject
+    return claude_inject(config, project_dir=project_dir)
 
 
 def remove_initiative(project_dir: Path | None = None) -> list[str]:
-    from .claude import _remove_all_initiative_blocks
-    actions = []
-    target = _resolve_instructions_md(project_dir)
-    if not target.exists():
-        return actions
-
-    content = target.read_text()
-    new_content = _remove_all_initiative_blocks(content)
-    if new_content != content:
-        target.write_text(new_content)
-        actions.append(f"removed initiative context from {target.name}")
-    return actions
+    from .claude import remove_initiative as claude_remove
+    return claude_remove(project_dir=project_dir)

@@ -22,6 +22,8 @@ from .models import (
 )
 from .adapters import ADAPTERS
 from .initiatives.manager import InitiativeManager
+from .templates.project_claude_md import generate_project_claude_md
+from .templates.local_claude_md import generate_local_claude_md
 
 console = Console()
 
@@ -87,23 +89,6 @@ def main():
     pass
 
 
-def _load_local_config() -> dict:
-    config_path = Path.cwd() / ".local_config.yaml"
-    if config_path.exists():
-        try:
-            return yaml.safe_load(config_path.read_text()) or {}
-        except yaml.YAMLError:
-            return {}
-    return {}
-
-
-def _save_local_config(updates: dict):
-    config_path = Path.cwd() / ".local_config.yaml"
-    existing = _load_local_config()
-    existing.update(updates)
-    config_path.write_text(yaml.dump(existing, default_flow_style=False, allow_unicode=True))
-
-
 def _scan_project() -> dict:
     cwd = Path.cwd()
     info = {
@@ -116,6 +101,8 @@ def _scan_project() -> dict:
         "ides": [],
         "repo_url": None,
         "deps": [],
+        "doc_map": "",
+        "relationships": "",
     }
     import subprocess
     try:
@@ -147,6 +134,14 @@ def _scan_project() -> dict:
         info["package_manager"] = "pip"
         info["test_command"] = "pytest"
         info["lint_command"] = "ruff"
+        try:
+            pyproject = (cwd / "pyproject.toml").read_text()
+            if "fastapi" in pyproject.lower(): info["framework"].append("FastAPI")
+            if "django" in pyproject.lower(): info["framework"].append("Django")
+            if "flask" in pyproject.lower() and "flask" != pyproject.lower()[:100]: info["framework"].append("Flask")
+            if "click" in pyproject.lower(): info["framework"].append("Click")
+        except Exception:
+            pass
     elif (cwd / "go.mod").exists():
         info["language"] = "Go"
         info["package_manager"] = "go mod"
@@ -160,28 +155,45 @@ def _scan_project() -> dict:
     if (home / ".config/opencode").exists(): info["ides"].append("opencode")
     if (home / ".gemini").exists(): info["ides"].append("gemini")
     if (cwd / ".cursor").exists(): info["ides"].append("cursor")
+
+    docs_dir = cwd / "docs"
+    if docs_dir.exists():
+        parts = []
+        if (docs_dir / "specs").exists():
+            parts.append("- Specs: `docs/specs/`")
+        if (docs_dir / "discussion").exists():
+            parts.append("- Discussions: `docs/discussion/`")
+        info["doc_map"] = "\n".join(parts) if parts else "- `docs/` exists but no specs/discussion subdirectories"
+    else:
+        info["doc_map"] = "_`docs/` directory not found. Run `coworker init` to create._"
+
+    try:
+        catalog = load_project_catalog()
+        current_path = str(cwd.resolve())
+        rels = []
+        for entry in catalog.projects:
+            for ref in entry.upstream:
+                rels.append(f"| {entry.name} | upstream | {ref.name} |")
+            for ref in entry.downstream:
+                rels.append(f"| {entry.name} | downstream | {ref.name} |")
+        if rels:
+            info["relationships"] = "\n".join(rels)
+    except Exception:
+        pass
+
     return info
 
 
-def _build_project_section(info: dict) -> str:
-    lines = ["## Project Context", ""]
-    lines.append(f"- **Language:** {info['language']}")
-    if info["framework"]:
-        lines.append(f"- **Framework:** {', '.join(info['framework'])}")
-    if info["package_manager"]:
-        lines.append(f"- **Package manager:** {info['package_manager']}")
-    if info["test_command"]:
-        lines.append(f"- **Test:** `{info['test_command']}`")
-    if info["lint_command"]:
-        lines.append(f"- **Lint:** `{info['lint_command']}`")
-    if info["repo_url"]:
-        lines.append(f"- **Repo:** {info['repo_url']}")
-    if info["deps"]:
-        lines.append("")
-        lines.append("### Key Dependencies")
-        for dep in info["deps"][:10]:
-            lines.append(f"- `{dep}`")
-    return "\n".join(lines) + "\n"
+def _build_project_claude_md(info: dict) -> str:
+    """Generate project CLAUDE.md using canonical template."""
+    return generate_project_claude_md(
+        project_name=info.get("project_name", ""),
+        repo=info.get("repo_url") or "",
+        branch="main",
+        relationships=info.get("relationships", ""),
+        doc_map=info.get("doc_map", ""),
+        team_links=info.get("team_links", ""),
+    )
 
 
 @main.command()
@@ -229,32 +241,79 @@ def init(is_global, is_project):
         console.print(f"[green]Created:[/green] {project_config}")
 
         claude_md = Path.cwd() / "CLAUDE.md"
-        section = _build_project_section(info)
+        new_content = _build_project_claude_md(info)
         if claude_md.exists():
             content = claude_md.read_text()
-            if "## Project Context" in content:
-                console.print("[yellow]CLAUDE.md already has Project Context, skipping.[/yellow]")
+            if "## Identity & Project Context" in content:
+                console.print("[yellow]CLAUDE.md already has project context, skipping generation.[/yellow]")
             else:
-                claude_md.write_text(content.rstrip() + "\n\n" + section + "\n")
-                console.print(f"[green]Updated:[/green] CLAUDE.md")
+                claude_md.write_text(new_content)
+                console.print(f"[green]Created:[/green] CLAUDE.md (with new template)")
         else:
-            claude_md.write_text(section + "\n")
+            claude_md.write_text(new_content)
             console.print(f"[green]Created:[/green] CLAUDE.md")
+
+        docs_dir = Path.cwd() / "docs"
+        for subdir in ["specs", "discussion"]:
+            (docs_dir / subdir).mkdir(parents=True, exist_ok=True)
+        console.print("[green]Created docs/ structure (specs/, discussion/)[/green]")
+
+        local_md_path = Path.cwd() / "CLAUDE.local.md"
+        if not local_md_path.exists():
+            local_md_path.write_text(generate_local_claude_md())
+            console.print(f"[green]Created:[/green] CLAUDE.local.md")
+            gitignore_path = Path.cwd() / ".gitignore"
+            entries = ["CLAUDE.local.md", "docs/state-*.md"]
+            if not gitignore_path.exists():
+                gitignore_path.write_text("\n".join(entries) + "\n")
+            else:
+                existing = gitignore_path.read_text()
+                with open(gitignore_path, "a") as f:
+                    for entry in entries:
+                        if entry not in existing:
+                            f.write(f"{entry}\n")
+            console.print("[dim]Added CLAUDE.local.md, docs/state-*.md to .gitignore[/dim]")
 
         console.print("\n[bold green]Setup complete![/bold green] Run [cyan]coworker sync[/cyan] to apply.")
 
-        # Ask about session analysis
-        console.print("\n[bold]Session Analysis[/bold]")
-        console.print("Analyze AI sessions to extract reusable knowledge (SOPs, mistakes, insights).")
-        if click.confirm("Enable session analysis with DeepSeek Flash?", default=False):
-            key = click.prompt("DeepSeek API key", hide_input=True, default="", show_default=False)
-            if key:
-                _save_local_config({"analysis": {"provider": "deepseek", "api_key": key}})
-                console.print("[green]Session analysis enabled.[/green]")
-            else:
-                console.print("[yellow]No API key provided. Analysis disabled.[/yellow]")
+
+@main.command()
+@click.argument("task", default="current")
+@click.option("--summary", "-s", default=None, help="One-line progress summary")
+def state_update(task, summary):
+    """Update the task state file (called by Stop hook or manually for milestones)."""
+    cwd = Path.cwd()
+
+    # Find state file path from CLAUDE.local.md
+    local_md = cwd / "CLAUDE.local.md"
+    state_path = cwd / "docs" / f"state-{task}.md"
+    if local_md.exists():
+        import re
+        content = local_md.read_text()
+        match = re.search(r"State file:\s*`([^`]+)`", content)
+        if match:
+            state_path = cwd / match.group(1).replace("{taskname}", task)
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    if state_path.exists():
+        existing = state_path.read_text()
+        entry = f"\n\n## Update — {now}\n\n"
+        if summary:
+            entry += f"{summary}\n"
         else:
-            console.print("[dim]Session analysis disabled. Enable later in .local_config.yaml[/dim]")
+            entry += "_Progress checkpoint._\n"
+        state_path.write_text(existing.rstrip() + entry)
+    else:
+        state_path.write_text(f"# Task State: {task}\n\n"
+                              f"**Started:** {now}\n"
+                              f"**Status:** in progress\n\n"
+                              f"## Progress\n\n")
+
+    console.print(f"[green]State updated: {state_path}[/green]")
 
 
 @main.command()
