@@ -143,7 +143,45 @@ if [[ ! -d "$REPO_ROOT/skills" ]]; then
   warn "No skills/ directory found in ai-coworker repo — skipping"
 else
   mkdir -p "$OPENCODE_SKILLS_DIR"
-  rsync -a --delete "$REPO_ROOT/skills/" "$OPENCODE_SKILLS_DIR/"
+
+  # Save old skill content hashes before sync
+  declare -A OLD_HASHES
+  if [[ -d "$OPENCODE_SKILLS_DIR" ]]; then
+    for skill_dir in "$OPENCODE_SKILLS_DIR"/*/; do
+      [[ -d "$skill_dir" ]] || continue
+      skill_file="${skill_dir}SKILL.md"
+      [[ -f "$skill_file" ]] || continue
+      dir_name=$(basename "$skill_dir")
+      OLD_HASHES["$dir_name"]=$(md5sum "$skill_file" | cut -d' ' -f1)
+    done
+  fi
+
+  # Sync without --delete (preserve skills deleted from source)
+  rsync -a "$REPO_ROOT/skills/" "$OPENCODE_SKILLS_DIR/"
+
+  # Build source skill hash map for rename detection
+  declare -A SRC_HASHES
+  for skill_dir in "$REPO_ROOT/skills"/*/; do
+    [[ -d "$skill_dir" ]] || continue
+    skill_file="${skill_dir}SKILL.md"
+    [[ -f "$skill_file" ]] || continue
+    dir_name=$(basename "$skill_dir")
+    SRC_HASHES["$dir_name"]=$(md5sum "$skill_file" | cut -d' ' -f1)
+  done
+
+  # Detect renames: old dir gone from source, content moved to new dir
+  for old_dir in "${!OLD_HASHES[@]}"; do
+    old_hash="${OLD_HASHES[$old_dir]}"
+    [[ -d "$REPO_ROOT/skills/$old_dir" ]] && continue
+    for src_dir in "${!SRC_HASHES[@]}"; do
+      if [[ "${SRC_HASHES[$src_dir]}" == "$old_hash" ]]; then
+        log "Renamed skill: $old_dir → $src_dir (cleaning up old)"
+        rm -rf "$OPENCODE_SKILLS_DIR/$old_dir"
+        break
+      fi
+    done
+  done
+
   ok "Deployed skills to $OPENCODE_SKILLS_DIR"
 fi
 
